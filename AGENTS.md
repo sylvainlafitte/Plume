@@ -27,8 +27,17 @@ swift test             # unit tests
 swift build -c release
 ```
 
-The app must run as a real `.app` bundle to capture system audio (see "Invariants"). Testing
-by `swift run` will appear to work and silently record silence.
+**Never test audio capture with `swift run`.** A shell-launched binary records full-length
+digital silence — no error, no permission prompt, every `OSStatus` `noErr`. TCC attributes the
+request to the *responsible process*, which from a terminal is the terminal. Build and run the
+`.app`, always.
+
+Measured 2026-08-14 with the same binary and the same tone, varying only the launch context:
+bare binary **0 of 286,720** non-zero samples (−inf dBFS, no prompt); `.app` via LaunchServices
+**100%** (−14.0 dBFS, prompt naming the app). Full evidence and method:
+[spikes/responsible-process/RESULTS.md](spikes/responsible-process/RESULTS.md).
+
+A permission grant made *during* a run lands too late for that run — re-run once after granting.
 
 ## Constraints an agent will otherwise get wrong
 
@@ -71,9 +80,11 @@ would quietly summarize only the tail of a long meeting. Always send `num_ctx`, 
 3. **Derived names are proposals, not facts.** Speaker names inferred from the transcript are
    pre-filled suggestions requiring one click. A wrong name attributes quotes to a real person
    who didn't say them — worse than an honest `S1`.
-4. **System-audio health can only be verified empirically.** Return codes, stream formats and
-   packet counts all look correct while recording pure silence. The only real check is: play a
-   tone, capture, assert the samples aren't all zero.
+4. **System-audio health can only be verified empirically.** Confirmed by measurement, not
+   theory: in the failing case the tap was created, the format was a correct 48 kHz stereo, the
+   aggregate device existed, and the IOProc fired 280 times at exactly the right rate — with
+   every sample zero. No return code, format check or packet count can detect this. The only
+   real check is: play a tone, capture, assert the samples aren't all zero.
 5. **Audio is deleted immediately after transcription, by decision.** There is no re-run. Tune
    against the held-aside test corpus, never against production recordings.
 6. **The user's Notes region is theirs.** The app writes it during capture and wrap-up; nothing
@@ -94,7 +105,7 @@ dependencies without a note in PROGRESS.md saying what it replaced.
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-14 (pre-implementation — nothing to verify yet).*
+*Last reviewed against the code: 2026-08-14, after Spike A.*
 
 **Rule: update this file in the same commit as the change, never "later."** A separate
 documentation pass does not happen, and a constraint that is silently wrong is worse than one

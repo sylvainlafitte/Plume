@@ -12,9 +12,9 @@ AGENTS.md **in the same commit**.
 
 ## Current state
 
-**Phase:** 0 — scaffolding
-**Next action:** Phase 1 spike A (responsible-process / system-audio go-no-go). Nothing else in
-Phase 1 is worth building until it has an answer.
+**Phase:** 1 — spikes
+**Next action:** Spike B (panel). Spike A **passed**; `.app` packaging is validated and Phase 1
+proceeds as planned.
 **Blocked on:** nothing
 
 ---
@@ -24,10 +24,10 @@ Phase 1 is worth building until it has an answer.
 ### Phase 1 — Spikes, then fork and foundations
 Spikes first; **A is go/no-go for the whole packaging decision.**
 
-- [ ] **Spike A — responsible process (B3).** Throwaway `.app`, launched from Finder, records
-      2s of system audio while a tone plays; assert samples are not all zero. If a bundle does
-      *not* get its own TCC identity, packaging reverts to a LaunchAgent and Phases 5–6 need a
-      different window-owning strategy.
+- [x] **Spike A — responsible process (B3). PASSED 2026-08-14.** Bare binary: 0/286,720
+      non-zero samples, −inf dBFS, no prompt. Same binary in a `.app` via LaunchServices:
+      284,672/284,672, −14.0 dBFS, prompt naming the app. `.app` packaging validated.
+      → [spikes/responsible-process/RESULTS.md](../spikes/responsible-process/RESULTS.md)
 - [ ] **Spike B — panel.** ~40 lines AppKit: confirm the F4 style mask accepts typed text with
       Zoom frontmost; confirm screen-share exposure with a QuickTime recording (expected:
       visible — see B2).
@@ -108,6 +108,9 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | Date | Decision | Why |
 |---|---|---|
 | 2026-08-14 | Scaffolding: git + upstream remote, AGENTS.md, this file, `spikes/`, `.gitignore` | Multi-agent work across sessions needs revert-ability and a durable memory outside any one session |
+| 2026-08-14 | **`.app` bundle confirmed as the packaging approach** (PLAN.md Phase 1 stands) | Spike A measured it rather than assuming: LaunchServices makes the app its own TCC responsible process. quill#54 still reproduces exactly on macOS 26.5.1 |
+| 2026-08-14 | Build script must `xattr -cr` the assembled `.app` before `codesign` | SwiftPM's build dir carries `com.apple.provenance`; codesign rejects it as "resource fork, Finder information, or similar detritus". Will recur in the real Phase 1 build |
+| 2026-08-14 | First-run flow must tolerate a late permission grant | A grant made *during* a capture arrives too late for that capture. The app needs to re-run or re-prompt rather than report failure |
 
 ## Tried and rejected
 
@@ -115,4 +118,4 @@ The most valuable section. Record dead ends **with the evidence**, so they aren'
 
 | Date | Tried | Outcome |
 |---|---|---|
-| — | *(nothing yet)* | |
+| 2026-08-14 | Reading `ls -l` permissions to diagnose an `EPERM` on files under `~/Documents` | Misleading — TCC blocks `open()` while leaving `stat()` working, so the file shows a normal `rw-r--r--` and looks like an ordinary permission bug. The distinguishing probe is: `stat` succeeds, `cat` fails, `ls ~/Documents` fails, `/tmp` fine. Fix is System Settings → Privacy & Security → Files and Folders, not `chmod` |

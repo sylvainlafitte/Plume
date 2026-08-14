@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.plume.spike-a</string>
+    <key>CFBundleName</key>
+    <string>SpikeA</string>
+    <key>CFBundleExecutable</key>
+    <string>SpikeA</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>15.0</string>
+
+    <!-- The keys under test. Without a bundle to carry these, macOS has no string
+         to show in a permission prompt and no identity to attach the grant to. -->
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Spike A captures a few seconds of system audio to verify that a bundled app receives its own system-audio permission.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Spike A does not record the microphone; this key matches quill's plist so the test isolates packaging rather than entitlements.</string>
+</dict>
+</plist>
