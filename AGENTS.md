@@ -100,37 +100,21 @@ dependencies without a note in PROGRESS.md saying what it replaced.
 documentation pass does not happen, and a constraint that is silently wrong is worse than one
 that is missing — the next agent will trust it.
 
-### Update it when
+**Update it when:** a constraint here stops being true (dependency bumped, endpoint or model
+changed, workaround no longer needed — edit the claim, don't leave both versions); a spike
+answers an open question; you add or break an invariant; build/run commands change; or
+**something cost you more than ~30 minutes and isn't obvious from the code** — that last one is
+the definition of what belongs here.
 
-- **A constraint here stops being true.** A dependency is bumped, an endpoint or model changes,
-  a workaround becomes unnecessary. Edit the claim; don't leave both versions.
-- **A spike or experiment answers an open question.** Spike A decides packaging; when it lands,
-  the `.app` guidance stops being provisional and says what was actually observed.
-- **Something costs you more than ~30 minutes to figure out and isn't obvious from the code.**
-  That is the exact definition of what belongs here. If you had to read three files or an
-  upstream issue to understand it, write it down.
-- **You add or break an invariant.** New rules go in the Invariants list with the consequence of
-  breaking them, not just the rule.
-- **Build, test, or run commands change** — including anything that must be done a specific way
-  to work at all (the `.app`-vs-`swift run` trap is the model here).
-- **A phase completes** and changes how you work on the code day to day.
+**Don't put here:** design rationale → PLAN.md. Status and dead ends → PROGRESS.md. Anything a
+competent reader gets from the code. This file earns its length by holding only **non-derivable**
+things: platform traps, silent failures, upstream behaviour, and decisions that look arbitrary
+but aren't.
 
-### Don't put here
+**Length is the failure mode.** Past ~two screens, something has drifted in that belongs in
+PLAN.md or a code comment. Prune rather than append; a file nobody finishes reading protects
+nothing.
 
-- Design rationale or alternatives considered → **PLAN.md**
-- What happened, current status, dead ends → **PROGRESS.md**
-- Anything a competent reader gets from reading the code. This file earns its length by holding
-  only what is **non-derivable**: platform traps, silent failures, upstream behaviour, and
-  decisions that look arbitrary but aren't.
-
-### Keep it short
-
-Length is the failure mode. If it grows past roughly two screens, something has drifted into it
-that belongs in PLAN.md or the code comments. Prune rather than append — a file nobody finishes
-reading protects nothing.
-
-### Reviewing
-
-When you touch this file, update the *Last reviewed* date above. If you're starting a session
-and that date is far behind the latest commits, spend five minutes checking the Constraints and
-Invariants sections against reality before trusting them — and fix what has drifted.
+When you edit this file, bump the *Last reviewed* date. If that date is far behind HEAD at the
+start of a session, spend five minutes checking Constraints and Invariants against reality
+before trusting them.
