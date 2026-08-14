@@ -74,6 +74,58 @@ struct SettingsView: View {
             }
 
             Section {
+                Picker(
+                    "Usual meeting size",
+                    selection: Binding(
+                        get: { settings.expectedParticipants ?? 2 },
+                        set: { newValue in
+                            save { $0.expectedParticipants = newValue }
+                            settings = Config.current()
+                        }
+                    )
+                ) {
+                    Text("1:1 — two people").tag(2)
+                    Text("Three people").tag(3)
+                    Text("Four people").tag(4)
+                    Text("Five people").tag(5)
+                    Text("Let Plume decide — larger or varied meetings").tag(0)
+                    // This window advertises the config file as hand-editable, so
+                    // a value outside the presets must not blank the picker.
+                    if let custom = settings.expectedParticipants,
+                        ![0, 2, 3, 4, 5].contains(custom)
+                    {
+                        Text("\(custom) people (from config file)").tag(custom)
+                    }
+                }
+
+                Toggle(
+                    "Remove echo of the other side from my track",
+                    isOn: Binding(
+                        get: { settings.transcriptEchoFilter ?? true },
+                        set: { newValue in
+                            settings.transcriptEchoFilter = newValue
+                            save { $0.transcriptEchoFilter = newValue }
+                        }
+                    )
+                )
+            } header: {
+                Text("Transcript")
+            } footer: {
+                // Says what it does to the transcript, not what it does to the
+                // clusterer — the number is a hint, and the consequence of
+                // getting it wrong is what the user needs to weigh.
+                Text(
+                    "Your microphone is always kept separate, so this only tells Plume how many "
+                    + "other voices to expect. Guessing too low merges people together; "
+                    + "\"Let Plume decide\" can occasionally split one person in two, which you "
+                    + "can merge afterwards.\n\n"
+                    + "Echo removal matters when meetings play through speakers — your mic hears "
+                    + "them and every sentence would otherwise appear twice."
+                )
+                .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
                 Toggle(
                     "Transcribe recordings automatically",
                     isOn: Binding(

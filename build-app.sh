@@ -52,7 +52,14 @@ if [ "$ACTION" = "run" ]; then
     done
     rm -rf "/Applications/$APP"
     cp -R "$APP" /Applications/
-    open "/Applications/$APP"
+    # LaunchServices caches the old bundle briefly after it is replaced; opening
+    # immediately can fail with -600. Register the new one, then retry.
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+        -f "/Applications/$APP" 2>/dev/null || true
+    for attempt in 1 2 3; do
+        open "/Applications/$APP" 2>/dev/null && break
+        sleep 1
+    done
     echo "  running — look for the feather in the menu bar"
 else
     cat <<EOF

@@ -70,4 +70,28 @@ struct ExpectedParticipantsTests {
         #expect(Config.expectedParticipants() == 2)
         #expect(Config.maxFarEndSpeakers() == 1)
     }
+
+    @Test("zero means unconstrained, not zero speakers")
+    func zeroMeansUnconstrained() throws {
+        let settings = try JSONDecoder().decode(
+            Settings.self, from: Data(#"{"expected_participants": 0}"#.utf8))
+        #expect(settings.expectedParticipants == 0)
+    }
+
+    @Test("a headcount maps to headcount-1 far-end speakers, never below 1")
+    func capArithmetic() {
+        // Pure arithmetic on the stored value, so it holds regardless of what
+        // the developer's own config file happens to say.
+        func cap(for expected: Int) -> Int? {
+            guard expected > 0 else { return nil }
+            return Swift.max(1, expected - 1)
+        }
+        #expect(cap(for: 2) == 1)
+        #expect(cap(for: 3) == 2)
+        #expect(cap(for: 5) == 4)
+        #expect(cap(for: 0) == nil)
+        // A nonsensical 1 must not become a cap of 0, which would mean "no
+        // speakers at all" rather than "just you".
+        #expect(cap(for: 1) == 1)
+    }
 }

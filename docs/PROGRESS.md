@@ -12,11 +12,18 @@ AGENTS.md **in the same commit**.
 
 ## Current state
 
-**Phase:** 2 — implemented, unverified on real multi-speaker audio
-**Next action:** record the R3 corpus (1:1, 3-person, one on speakers). Phase 2's code paths
-all work, but the only multi-speaker evidence so far is synthetic unit tests — the single real
-recording had one speaker. Also still pending: verify #2 across a real call connect/disconnect.
-**Blocked on:** nothing (the held-aside test corpus gates Phase 2's *sign-off*, not its start)
+**Phase:** 2 code-complete; 3 starting
+**Next action:** continue building. Phase 2's multi-speaker paths stay unverified until the
+corpus exists — that does **not** block later phases, but it does block calling Phase 2 done.
+
+> ### ⚠️ Carried debt: Phase 2 is unverified on real multi-speaker audio
+> Every diarization and echo path is covered by synthetic unit tests only; the one real
+> recording had a single speaker. **Do not mark Phase 2 complete, and do not treat the
+> `expected_participants` default as settled, until the corpus below is recorded.** The 1:1
+> measurement in particular decides a default for the modal meeting. This survives phase
+> transitions on purpose — see "Human-dependent, start early".
+
+**Blocked on:** nothing for building; the corpus and a real-call test need other people.
 
 ---
 
@@ -73,8 +80,9 @@ transcript with *verified non-zero* system audio.
       `withSpeakers(max:)` — makes over-splitting a 1:1 structurally impossible rather than
       merely unlikely
 - [ ] **Verify on the R3 corpus** — every multi-speaker path is unit-tested only
-- [ ] Settings pane for `expected_participants` and `transcript_echo_filter` (config-file only
-      today; participants is the one most likely to change per meeting)
+- [x] Settings pane for `expected_participants` (as "usual meeting size") and
+      `transcript_echo_filter`, phrased by consequence rather than by mechanism; picker keeps a
+      hand-edited out-of-range value visible instead of blanking
 
 **Done when:** on the test corpus, a 3-person call yields distinct speakers **and a 1:1 yields
 exactly one remote speaker.** The second is the one expected to fail.
