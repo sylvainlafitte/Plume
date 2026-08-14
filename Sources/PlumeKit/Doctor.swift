@@ -6,6 +6,8 @@ enum CheckStatus {
     case ok
     case warn(String)
     case fail(String)
+
+    var isOK: Bool { if case .ok = self { return true } else { return false } }
 }
 
 struct Check {
@@ -15,10 +17,14 @@ struct Check {
 }
 
 enum DoctorReport {
-    static func run(recordingsRoot: URL) -> [Check] {
+    /// `probeAudio` runs the empirical capture tests. They take ~2s and play a
+    /// short tone, so startup skips them; `doctor` and the settings window run
+    /// them deliberately.
+    static func run(recordingsRoot: URL, probeAudio: Bool = false) -> [Check] {
         [
             checkMicrophone(),
-            checkSystemAudio(),
+            checkMicLevel(probe: probeAudio),
+            checkSystemAudio(probe: probeAudio),
             checkRecordingsRoot(recordingsRoot),
             checkTranscription(),
         ]
@@ -48,12 +54,77 @@ enum DoctorReport {
 
     /// There is no public API to query the system-audio-capture TCC state
     /// without side effects, so all we can do is describe the flow.
-    static func checkSystemAudio() -> Check {
-        Check(
+    /// Empirical, because nothing else works. An unauthorised tap reports
+    /// success at every step and delivers well-formed all-zero buffers; return
+    /// codes, stream formats and packet counts all look healthy. So play a tone
+    /// and check the samples. See spikes/responsible-process/RESULTS.md.
+    ///
+    /// Only meaningful inside the .app bundle — from a terminal, TCC attributes
+    /// the request to the shell and this correctly reports silence.
+    static func checkSystemAudio(probe: Bool) -> Check {
+        guard probe else {
+            return Check(
+                name: "system audio",
+                status: .warn("not probed — pass `doctor` from the app to test capture for real"),
+                remediation: nil
+            )
+        }
+        guard let level = AudioProbe.probeSystemAudio() else {
+            return Check(
+                name: "system audio",
+                status: .fail("could not create a process tap"),
+                remediation: "System Settings → Privacy & Security → Screen & System Audio Recording → enable for Plume"
+            )
+        }
+        if level.isSilent {
+            return Check(
+                name: "system audio",
+                status: .fail("tap ran but captured pure silence (\(level.peakText))"),
+                remediation: "System Settings → Privacy & Security → Screen & System Audio Recording → enable for Plume, then relaunch"
+            )
+        }
+        // Report the level, not just "ok". This check exists because every
+        // other signal lies; an unquantified pass would be one more of them.
+        return Check(
             name: "system audio",
-            status: .warn("state unknowable until first use — will prompt on first recording"),
-            remediation: "if recordings come out silent: System Settings → Privacy & Security → Screen & System Audio Recording"
+            status: .ok,
+            remediation: "captured \(level.peakText), \(Int(level.nonZeroFraction * 100))% non-zero"
         )
+    }
+
+    /// A mic can be authorised, live, and still too quiet to transcribe well.
+    /// Measured 2026-08-14: input volume 29/100 put speech at −31 dBFS. Audio is
+    /// deleted after transcription, so a quiet meeting cannot be redone (R14b).
+    static func checkMicLevel(probe: Bool) -> Check {
+        guard probe else {
+            return Check(name: "mic level", status: .warn("not probed"), remediation: nil)
+        }
+        guard let level = AudioProbe.probeMicrophone() else {
+            return Check(
+                name: "mic level",
+                status: .warn("could not open the input device"),
+                remediation: "System Settings → Sound → Input"
+            )
+        }
+        // Thresholds are for ambient room tone during a ~1.5s probe, not speech.
+        // Digital silence means a dead route; a very low peak means low input gain.
+        if level.isSilent {
+            return Check(
+                name: "mic level",
+                status: .fail("input is digitally silent"),
+                remediation: "System Settings → Sound → Input — check the device and input volume"
+            )
+        }
+        if level.peakDBFS < -55 {
+            return Check(
+                name: "mic level",
+                status: .warn("very quiet (\(level.peakText) ambient) — speech may transcribe poorly"),
+                remediation: "System Settings → Sound → Input — raise input volume to ~70%"
+            )
+        }
+        return Check(
+            name: "mic level", status: .ok,
+            remediation: "ambient \(level.peakText)")
     }
 
     static func checkRecordingsRoot(_ root: URL) -> Check {

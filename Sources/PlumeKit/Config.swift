@@ -1,4 +1,29 @@
 import Foundation
+import os.lock
+
+/// Typed view of `~/.config/plume/config.json`.
+///
+/// Every field is optional so that absent keys stay absent when the settings
+/// window rewrites the file — writing materialised defaults would turn an
+/// "unset, follow the app default" into a pin that survives future changes.
+struct Settings: Codable, Sendable, Equatable {
+    struct Transcription: Codable, Sendable, Equatable {
+        var enabled: Bool?
+        var engine: String?
+    }
+
+    var recordingsDir: String?
+    var onStop: String?
+    var micVoiceProcessing: Bool?
+    var transcription: Transcription?
+
+    enum CodingKeys: String, CodingKey {
+        case recordingsDir = "recordings_dir"
+        case onStop = "on_stop"
+        case micVoiceProcessing = "mic_voice_processing"
+        case transcription
+    }
+}
 
 /// Optional user config at ~/.config/plume/config.json:
 ///
@@ -14,9 +39,8 @@ import Foundation
 /// argument — after the transcript is written, or right after recording when
 /// transcription is disabled.
 ///
-/// TODO(phase-1): this re-reads and re-parses the file on *every* accessor call,
-/// including from inside an actor. Cache it and watch the file — mandatory once
-/// the settings window can write to it. See docs/PLAN.md F10.
+/// The file is the single source of truth: the settings window reads and writes
+/// it, so a hand-edit and a UI edit can never disagree.
 enum Config {
     static let path = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/plume/config.json")
@@ -24,32 +48,30 @@ enum Config {
     static let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Meetings", isDirectory: true)
 
+    // MARK: - Accessors
+
     /// The configured recordings root, or nil if no config file / no key.
     static func recordingsDir() -> URL? {
-        guard let dir = load()?["recordings_dir"] as? String, !dir.isEmpty else { return nil }
+        guard let dir = current().recordingsDir, !dir.isEmpty else { return nil }
         return URL(fileURLWithPath: (dir as NSString).expandingTildeInPath, isDirectory: true)
     }
 
     /// Shell command to spawn after each session's transcript is written (or
     /// after recording, if transcription is disabled), or nil.
     static func onStop() -> String? {
-        guard let cmd = load()?["on_stop"] as? String, !cmd.isEmpty else { return nil }
+        guard let cmd = current().onStop, !cmd.isEmpty else { return nil }
         return cmd
     }
 
     /// Whether finished recordings are transcribed automatically. Default on.
     static func transcriptionEnabled() -> Bool {
-        transcription()?["enabled"] as? Bool ?? true
+        current().transcription?.enabled ?? true
     }
 
     /// Configured engine name. Only "parakeet" ships today; the coordinator
     /// warns and falls back for anything else.
     static func transcriptionEngine() -> String {
-        transcription()?["engine"] as? String ?? "parakeet"
-    }
-
-    private static func transcription() -> [String: Any]? {
-        load()?["transcription"] as? [String: Any]
+        current().transcription?.engine ?? "parakeet"
     }
 
     /// Apple voice processing (acoustic echo cancellation) on the mic, so
@@ -58,24 +80,7 @@ enum Config {
     /// and on headphones there's no echo to cancel anyway. Set true when
     /// recording meetings through the speakers.
     static func micVoiceProcessing() -> Bool {
-        load()?["mic_voice_processing"] as? Bool ?? false
-    }
-
-    /// Parse the config file. A malformed config is reported on stderr rather
-    /// than silently ignored — recordings landing in an unexpected place is
-    /// worse than a warning.
-    private static func load() -> [String: Any]? {
-        guard FileManager.default.fileExists(atPath: path.path) else { return nil }
-        guard
-            let data = try? Data(contentsOf: path),
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            FileHandle.standardError.write(Data(
-                "warning: \(path.path) is not valid JSON — ignoring config\n".utf8
-            ))
-            return nil
-        }
-        return json
+        current().micVoiceProcessing ?? false
     }
 
     /// Resolve the recordings root from an optional CLI override.
@@ -87,5 +92,63 @@ enum Config {
             )
         }
         return recordingsDir() ?? defaultRoot
+    }
+
+    // MARK: - Load / store
+
+    /// Cached parse, invalidated by the file's modification date.
+    ///
+    /// Quill re-read and re-parsed on *every* accessor call, including from
+    /// inside an actor — blocking disk I/O on a cooperative-pool thread. Keying
+    /// the cache on mtime keeps the one good property of that approach: a
+    /// hand-edit still takes effect without relaunching.
+    private struct Cache: Sendable {
+        var settings: Settings?
+        var modified: Date?
+    }
+    private static let cache = OSAllocatedUnfairLock(initialState: Cache())
+
+    /// Current settings, or all-nil defaults when there is no readable config.
+    static func current() -> Settings {
+        let modified = (try? FileManager.default.attributesOfItem(atPath: path.path))?[
+            .modificationDate] as? Date
+
+        return cache.withLock { cache in
+            if let modified, cache.modified == modified, let settings = cache.settings {
+                return settings
+            }
+            guard let modified else {
+                cache = Cache(settings: Settings(), modified: nil)
+                return Settings()
+            }
+            guard
+                let data = try? Data(contentsOf: path),
+                let settings = try? JSONDecoder().decode(Settings.self, from: data)
+            else {
+                // Reported rather than silently ignored: recordings landing in
+                // an unexpected place is worse than a warning.
+                FileHandle.standardError.write(Data(
+                    "warning: \(path.path) is not valid Plume config — ignoring\n".utf8
+                ))
+                cache = Cache(settings: Settings(), modified: modified)
+                return Settings()
+            }
+            cache = Cache(settings: settings, modified: modified)
+            return settings
+        }
+    }
+
+    /// Apply a change to the config file. Read-modify-write against the file so
+    /// keys Plume doesn't know about are preserved.
+    static func update(_ mutate: (inout Settings) -> Void) throws {
+        var settings = current()
+        mutate(&settings)
+        try FileManager.default.createDirectory(
+            at: path.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(settings).write(to: path, options: .atomic)
+        // Drop the cache: filesystem mtime resolution can round our write away.
+        cache.withLock { $0 = Cache() }
     }
 }

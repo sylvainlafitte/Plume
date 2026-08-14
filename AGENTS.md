@@ -27,17 +27,23 @@ swift test             # unit tests
 swift build -c release
 ```
 
-**Never test audio capture with `swift run`.** A shell-launched binary records full-length
-digital silence — no error, no permission prompt, every `OSStatus` `noErr`. TCC attributes the
-request to the *responsible process*, which from a terminal is the terminal. Build and run the
-`.app`, always.
+**Never test audio capture with `swift run`. Its result is meaningless either way.** A bare
+binary has **no TCC identity of its own** — capture is attributed to the *responsible process*,
+which from a terminal is the terminal. So a shell run tells you about your terminal's
+permissions, not Plume's:
 
-Measured 2026-08-14 with the same binary and the same tone, varying only the launch context:
-bare binary **0 of 286,720** non-zero samples (−inf dBFS, no prompt); `.app` via LaunchServices
-**100%** (−14.0 dBFS, prompt naming the app). Full evidence and method:
-[spikes/responsible-process/RESULTS.md](spikes/responsible-process/RESULTS.md).
+- responsible process lacks the grant → **full-length digital silence**, no error, no prompt,
+  every `OSStatus` `noErr`
+- responsible process holds the grant → captures fine, proving nothing about the app
 
-A permission grant made *during* a run lands too late for that run — re-run once after granting.
+Both observed on 2026-08-14, same binary, hours apart (0% then 99.5% non-zero) as the terminal's
+permissions changed underneath. The `.app` is the only launch context with a *deterministic,
+self-owned* grant. Build and run the bundle, always.
+Evidence: [spikes/responsible-process/RESULTS.md](spikes/responsible-process/RESULTS.md).
+
+This is exactly why capture health must be checked empirically (invariant 4) — launch context
+alone does not predict it. A permission grant made *during* a run lands too late for that run;
+re-run once after granting.
 
 ## Constraints an agent will otherwise get wrong
 

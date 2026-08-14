@@ -30,6 +30,28 @@ by ear**, which rules out "nothing was playing" as an explanation for silence.
 | **Peak amplitude** | **−inf dBFS** | **−14.0 dBFS** |
 | Permission prompt | none ever appeared | appeared, naming "SpikeA" |
 
+## ⚠️ Follow-up, same day: conclusion 2 below was overstated
+
+Re-running **this same binary** from the same shell hours later gave **99.5% non-zero, −14.0
+dBFS** — a pass where it had measured 0.0%. Nothing about the binary changed. What changed is
+that the responsible process (the terminal) acquired system-audio permission in the interim,
+almost certainly as a side effect of the TCC dialogs approved while testing SpikeA.app and
+Plume.app.
+
+**The corrected finding:** a bare binary has no TCC identity of its own and inherits the
+responsible process's. That yields silence *when the responsible process lacks the grant*, and
+normal capture when it holds it. The original run measured the first case and I generalised it
+into "shell launches record silence", which is false.
+
+**What this does not change:** the `.app` decision. A bundle is the only launch context with a
+deterministic, self-owned grant and its own prompt — which is what a user double-clicking from
+Finder needs. Conclusions 1 and 3 stand, and 3 is *strengthened*: if launch context cannot
+predict capture health, the empirical check is the only thing that can.
+
+**Method lesson:** the original result was a single measurement with an uncontrolled variable
+(the terminal's TCC state), reported as a general law. Same class of error as the `[verified]`
+tag this project already caught in PLAN.md B2 — a real observation, over-generalised.
+
 ## Conclusions
 
 1. **The `.app` packaging decision is validated.** A bundle launched through LaunchServices is

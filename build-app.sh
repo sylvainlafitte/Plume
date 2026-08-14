@@ -44,6 +44,12 @@ echo "▸ built $APP"
 if [ "$ACTION" = "run" ]; then
     echo "▸ installing to /Applications and launching"
     pkill -x plume 2>/dev/null || true
+    # Wait for the old instance to actually exit. Replacing the bundle while it
+    # is still shutting down makes LaunchServices fail the relaunch with -600.
+    for _ in $(seq 1 20); do
+        pgrep -x plume >/dev/null || break
+        sleep 0.25
+    done
     rm -rf "/Applications/$APP"
     cp -R "$APP" /Applications/
     open "/Applications/$APP"

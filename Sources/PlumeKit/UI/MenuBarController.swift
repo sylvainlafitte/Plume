@@ -8,11 +8,15 @@ final class MenuBarController {
     private let statusItem: NSStatusItem
     private let stateLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
+    private let failureItem: NSMenuItem
     private let toggleItem: NSMenuItem
 
     var onToggle: (() -> Void)?
     var onOpenFolder: (() -> Void)?
     var onQuit: (() -> Void)?
+    var onDismissFailure: (() -> Void)?
+    var onRunDiagnostics: (() -> Void)?
+    var onOpenSettings: (() -> Void)?
 
     init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -29,6 +33,13 @@ final class MenuBarController {
         transcriptionLabel.isHidden = true
         menu.addItem(transcriptionLabel)
 
+        // Sticky failure line. A menubar app has no console; an error that only
+        // appears in stderr is an error nobody sees. Click to dismiss.
+        failureItem = NSMenuItem(
+            title: "", action: #selector(dismissFailureClicked), keyEquivalent: "")
+        failureItem.isHidden = true
+        menu.addItem(failureItem)
+
         menu.addItem(.separator())
 
         toggleItem = NSMenuItem(
@@ -39,11 +50,28 @@ final class MenuBarController {
         menu.addItem(toggleItem)
 
         let openFolder = NSMenuItem(
-            title: "Open recordings folder",
+            title: "Open meetings folder",
             action: #selector(openFolderClicked),
             keyEquivalent: "o"
         )
         menu.addItem(openFolder)
+
+        // Capture health can only be verified empirically, and only from inside
+        // the bundle — see AudioProbe. This is the only place that check is
+        // meaningful, so it needs to be reachable.
+        let diagnostics = NSMenuItem(
+            title: "Run diagnostics…",
+            action: #selector(runDiagnosticsClicked),
+            keyEquivalent: "d"
+        )
+        menu.addItem(diagnostics)
+
+        let settings = NSMenuItem(
+            title: "Settings…",
+            action: #selector(openSettingsClicked),
+            keyEquivalent: ","
+        )
+        menu.addItem(settings)
 
         menu.addItem(.separator())
 
@@ -54,7 +82,7 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
-        for item in [toggleItem, openFolder, quit] {
+        for item in [toggleItem, openFolder, diagnostics, settings, quit, failureItem] {
             item.target = self
         }
 
@@ -68,22 +96,36 @@ final class MenuBarController {
         }
     }
 
-    /// Reflect recording state in the icon tint and menu item titles. The
-    /// menu bar shows only the feather (red while recording); the elapsed
-    /// counter lives in the menu's state label. Call once a second while
-    /// recording.
-    func update(recording: Bool, elapsed: String?) {
-        stateLabel.title = recording ? "● recording · \(elapsed ?? "0:00")" : "idle"
-        toggleItem.title = recording ? "Stop recording" : "Start recording"
-        statusItem.button?.contentTintColor = recording ? .systemRed : nil
-    }
+    /// Render the whole menu from `AppState`. Called from an observation
+    /// tracker, so every state change lands here — there is no path that
+    /// updates one label without reconsidering the others.
+    func render(_ state: AppState) {
+        let isRecording = state.recording.isRecording
+        stateLabel.title = isRecording
+            ? "● recording · \(state.elapsedText ?? "0:00")"
+            : (state.pendingCount > 0 ? "idle · \(state.pendingCount) pending" : "idle")
+        toggleItem.title = isRecording ? "Stop recording" : "Start recording"
+        statusItem.button?.contentTintColor = isRecording ? .systemRed : nil
 
-    /// Show transcription progress/failure as a second status line in the
-    /// menu; nil hides it. Independent of recording state — a new recording
-    /// can run while the last one transcribes.
-    func updateTranscription(_ text: String?) {
-        transcriptionLabel.title = text ?? ""
-        transcriptionLabel.isHidden = text == nil
+        switch state.transcription {
+        case .idle:
+            transcriptionLabel.isHidden = true
+        case .working(let name, let queued):
+            transcriptionLabel.title = queued > 0
+                ? "transcribing \(name) · \(queued) queued"
+                : "transcribing \(name)"
+            transcriptionLabel.isHidden = false
+        case .failed(let name):
+            transcriptionLabel.title = "transcription failed · \(name)"
+            transcriptionLabel.isHidden = false
+        }
+
+        if let failure = state.lastFailure {
+            failureItem.title = "⚠ \(failure.message) (\(failure.age)) — click to dismiss"
+            failureItem.isHidden = false
+        } else {
+            failureItem.isHidden = true
+        }
     }
 
     // Inlined Lucide feather SVG. Keeping it in source means the executable
@@ -111,4 +153,7 @@ final class MenuBarController {
     @objc private func toggleClicked() { onToggle?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func quitClicked() { onQuit?() }
+    @objc private func dismissFailureClicked() { onDismissFailure?() }
+    @objc private func runDiagnosticsClicked() { onRunDiagnostics?() }
+    @objc private func openSettingsClicked() { onOpenSettings?() }
 }

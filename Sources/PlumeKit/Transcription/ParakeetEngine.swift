@@ -80,7 +80,13 @@ actor ParakeetEngine: TranscriptionEngine {
             out.append(TranscriptSegment(
                 start: first.startTime,
                 end: last.endTime,
-                text: current.map(\.word).joined(separator: " ")
+                text: current.map(\.word).joined(separator: " "),
+                // Carried through rather than discarded: a segment can span a
+                // speaker change, so Phase 2 re-segments on per-word speaker
+                // attribution. See docs/PLAN.md F6.
+                words: current.map {
+                    Word(text: $0.word, start: $0.startTime, end: $0.endTime)
+                }
             ))
             current = []
         }

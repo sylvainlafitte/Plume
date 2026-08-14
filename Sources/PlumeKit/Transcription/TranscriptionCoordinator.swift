@@ -121,14 +121,24 @@ actor TranscriptionCoordinator {
             let offset = TimeInterval(track.offsetMs) / 1000
             merged += segments.map {
                 Transcript.Segment(
-                    speaker: track.speaker,
+                    speaker: track.speaker.label,
                     start_ms: Int(($0.start + offset) * 1000),
                     end_ms: Int(($0.end + offset) * 1000),
                     text: $0.text
                 )
             }
         }
-        merged.sort { $0.start_ms < $1.start_ms }
+        // Swift's sort is not stable, so ties on start_ms would order
+        // arbitrarily — and re-running the same session could produce a
+        // different transcript. Break ties on end, then speaker, then text so
+        // output is deterministic. This matters more after Phase 2: diarization
+        // splits one track into several speakers, multiplying simultaneous starts.
+        merged.sort { a, b in
+            if a.start_ms != b.start_ms { return a.start_ms < b.start_ms }
+            if a.end_ms != b.end_ms { return a.end_ms < b.end_ms }
+            if a.speaker != b.speaker { return a.speaker < b.speaker }
+            return a.text < b.text
+        }
 
         let transcript = Transcript(
             engine: engine.name,
@@ -188,10 +198,13 @@ actor TranscriptionCoordinator {
 
 /// The slice of meta.json the coordinator needs: which files exist, who they
 /// represent, and how far each track started after the earliest one.
-private struct SessionMeta {
+struct SessionMeta {
     struct Track {
         let file: String
-        let speaker: String
+        /// The speaker every segment on this track belongs to *before*
+        /// diarization. Phase 2 keeps this for the mic track and subdivides the
+        /// system track into `.remote(n)`.
+        let speaker: Speaker
         let offsetMs: Int
     }
 
@@ -220,10 +233,11 @@ private struct SessionMeta {
         let offsets = json["start_offset_ms"] as? [String: Int] ?? [:]
         var tracks: [Track] = []
         if let mic = files["mic"] {
-            tracks.append(Track(file: mic, speaker: "me", offsetMs: offsets["mic"] ?? 0))
+            tracks.append(Track(file: mic, speaker: .me, offsetMs: offsets["mic"] ?? 0))
         }
         if let system = files["system"] {
-            tracks.append(Track(file: system, speaker: "them", offsetMs: offsets["system"] ?? 0))
+            tracks.append(
+                Track(file: system, speaker: .them, offsetMs: offsets["system"] ?? 0))
         }
         return SessionMeta(tracks: tracks)
     }
@@ -231,8 +245,9 @@ private struct SessionMeta {
 
 /// Canonical transcript. Property names are the JSON schema — this struct
 /// exists to be serialized.
-private struct Transcript: Codable {
-    struct Segment: Codable {
+struct Transcript: Codable {
+    struct Segment: Codable, Equatable {
+        /// Speaker label as written to disk: "me", "them", or "S1"/"S2"…
         let speaker: String
         let start_ms: Int
         let end_ms: Int

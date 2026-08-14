@@ -12,10 +12,11 @@ AGENTS.md **in the same commit**.
 
 ## Current state
 
-**Phase:** 1 — foundations
-**Next action:** All three spikes are done. Begin the fork proper: Quill → Plume, `.app` bundle,
-`@Observable` state model, settings shell, cherry-picks (#18, #2, #6).
-**Blocked on:** nothing
+**Phase:** 1 — complete pending verification
+**Next action:** Phase 2 (diarization + echo filter). Before starting, verify #2 by recording
+across a real call connect/disconnect — it is the one guard against losing a whole meeting and
+cannot be tested without a call.
+**Blocked on:** nothing (the held-aside test corpus gates Phase 2's *sign-off*, not its start)
 
 ---
 
@@ -24,9 +25,10 @@ AGENTS.md **in the same commit**.
 ### Phase 1 — Spikes, then fork and foundations
 Spikes first; **A is go/no-go for the whole packaging decision.**
 
-- [x] **Spike A — responsible process (B3). PASSED 2026-08-14.** Bare binary: 0/286,720
-      non-zero samples, −inf dBFS, no prompt. Same binary in a `.app` via LaunchServices:
-      284,672/284,672, −14.0 dBFS, prompt naming the app. `.app` packaging validated.
+- [x] **Spike A — responsible process (B3). PASSED 2026-08-14**, with a same-day correction:
+      the bare binary measured 0/286,720 non-zero at first and 99.5% hours later, once the
+      *terminal* had gained the grant. A bare binary has no TCC identity of its own; the `.app`
+      is the only deterministic, self-owned grant. Packaging decision validated either way.
       → [spikes/responsible-process/RESULTS.md](../spikes/responsible-process/RESULTS.md)
 - [x] **Spike B — panel. PASSED 2026-08-14.** F4 style mask accepts typed text while another
       app keeps frontmost status. **And `sharingType = .none` still works** — the `.none` panel
@@ -37,20 +39,24 @@ Spikes first; **A is go/no-go for the whole packaging decision.**
       carry full-context cache): 8192 → 168 MiB, 32768 → 552 MiB. Generation verified at 32768,
       33.6 tok/s, 100% GPU. **`num_ctx` raised 8192 → 32768**; map-reduce demoted to a fallback.
       → [spikes/num-ctx/RESULTS.md](../spikes/num-ctx/RESULTS.md)
-- [ ] Fork Quill → Plume; rename bundle ID, binary, config path, output dir
-- [ ] `.app` bundle build script; `LSUIElement`; `SMAppService.mainApp` login item
-- [ ] Lift `private` transcript types to internal
-- [ ] Test target
-- [ ] Pin FluidAudio `.exact("0.15.5")`
-- [ ] `statusHandler` → `@Observable` + menubar error item
-- [ ] Settings shell (⌘,) + `Config` caching and file-watch fix
-- [ ] Transcript segment shape incl. `speaker` + word timings
+- [x] Fork Quill → Plume; rename bundle ID, binary, config path, output dir (`~/Meetings`)
+- [x] `.app` bundle build script (`build-app.sh`), `LSUIElement`, ad-hoc signing
+- [ ] `SMAppService.mainApp` login item — **not done**, deferred with the settings panes
+- [x] Lift `private` transcript types to internal
+- [x] Test target (`PlumeKitTests`, 18 tests) — required splitting `PlumeKit` out of the
+      executable, since a test target can't cleanly depend on a target with `@main`
+- [x] Pin FluidAudio `.exact("0.15.5")`; dropped ArgumentParser and the `unsafeFlags` plist hack
+- [x] `statusHandler` → `@Observable` `AppState` + sticky menubar error item
+- [x] Settings shell (⌘,) + typed `Settings` struct replacing `[String: Any]`, mtime-keyed cache
+- [x] Transcript segment shape incl. typed `Speaker` + word timings; types lifted to internal;
+      deterministic tie-broken merge sort
+- [x] `doctor`: empirical system-audio probe + mic-level check (R14b), both reporting measured
+      dBFS; reachable via "Run diagnostics…"
 - [x] Cherry-pick **#18** (`OSAllocatedUnfairLock` around cross-thread recorder state +
       malformed SVG), **#2** (mic restart on `AVAudioEngineConfigurationChange`, silence-padded
       gap, rate-change-tolerant conversion), **#6** (15s size-poll watchdog, 45s stall
       notification with recovery). Ported by hand — paths and the renamed queue label meant the
       patches didn't apply cleanly.
-- [ ] `doctor`: empirical system-audio check
 
 **Done when:** all three spikes answered, and a menubar record from `/Applications` produces a
 transcript with *verified non-zero* system audio.
@@ -72,8 +78,9 @@ exactly one remote speaker.** The second is the one expected to fail.
 - [ ] Audio deletion after transcript region written
 
 ### Phase 4 — Summaries
-- [ ] `SummaryEngine` on `/api/chat` (`num_ctx: 8192`, `truncate:false`, `shift:false`, 300s)
-- [ ] Map-reduce with carry-forward context between windows
+- [ ] `SummaryEngine` on `/api/chat` (`num_ctx: 32768` — Spike C, `truncate:false`,
+      `shift:false`, 300s)
+- [ ] Single pass when it fits; map-reduce with carry-forward context only past ~2.5h
 - [ ] Templates as markdown files + seed on first run (F9)
 - [ ] Title + speaker-name proposals via schema-constrained `format` (F12)
 - [ ] Folder rename on titling
@@ -137,6 +144,7 @@ The most valuable section. Record dead ends **with the evidence**, so they aren'
 
 | Date | Tried | Outcome |
 |---|---|---|
+| 2026-08-14 | **Concluding from Spike A that "a shell-launched binary records silence"** | Over-generalised from one measurement with an uncontrolled variable. The same binary later passed from the same shell (0% → 99.5% non-zero) once the *terminal* had acquired the grant. Correct statement: a bare binary has no TCC identity and inherits the responsible process's, so a shell run is inconclusive **in both directions**. The `.app` decision is unaffected — it's the only deterministic, self-owned grant — and the empirical check matters *more*, since launch context can't predict capture health. Same error class as the PLAN.md B2 `[verified]` tag: a real observation stated as a law |
 | 2026-08-14 | Using `ollama ps` SIZE to measure memory cost | Useless — reproducibly non-monotonic for identical weights (3.2 GB @ 4096, 9.5 GB @ 8192–16384, 3.3 GB @ 32768+). Whatever it reports, it is not weights + KV. Use `~/.ollama/logs/server.log` `llama_kv_cache:` lines instead; those are exact and linear. Also: `ollama ps` columns are `NAME ID SIZE UNIT PROC% GPU CONTEXT UNTIL` — `CONTEXT` is field 7, and it's the reliable confirmation that `num_ctx` was applied |
 | 2026-08-14 | Trusting a `[verified]` tag in PLAN.md that turned out to be a *citation*, not a measurement (B2, `sharingType = .none`) | Wrong on our target OS. The source was Apple DTS declining to **guarantee** capture exclusion — a statement about warranties, not about whether the mechanism functions. Spike B measured it working on macOS 26.5.1. **Lesson: when a plan claim is tagged verified, check whether someone measured it or merely found someone asserting it.** Several remaining tags are citations |
 | 2026-08-14 | Reading `ls -l` permissions to diagnose an `EPERM` on files under `~/Documents` | Misleading — TCC blocks `open()` while leaving `stat()` working, so the file shows a normal `rw-r--r--` and looks like an ordinary permission bug. The distinguishing probe is: `stat` succeeds, `cat` fails, `ls ~/Documents` fails, `/tmp` fine. Fix is System Settings → Privacy & Security → Files and Folders, not `chmod` |
