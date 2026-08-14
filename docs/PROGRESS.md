@@ -12,10 +12,10 @@ AGENTS.md **in the same commit**.
 
 ## Current state
 
-**Phase:** 1 — complete pending verification
-**Next action:** Phase 2 (diarization + echo filter). Before starting, verify #2 by recording
-across a real call connect/disconnect — it is the one guard against losing a whole meeting and
-cannot be tested without a call.
+**Phase:** 2 — implemented, unverified on real multi-speaker audio
+**Next action:** record the R3 corpus (1:1, 3-person, one on speakers). Phase 2's code paths
+all work, but the only multi-speaker evidence so far is synthetic unit tests — the single real
+recording had one speaker. Also still pending: verify #2 across a real call connect/disconnect.
 **Blocked on:** nothing (the held-aside test corpus gates Phase 2's *sign-off*, not its start)
 
 ---
@@ -62,11 +62,19 @@ Spikes first; **A is go/no-go for the whole packaging decision.**
 transcript with *verified non-zero* system audio.
 
 ### Phase 2 — Diarization and echo
-- [ ] `OfflineDiarizerManager` over the system track (threshold 0.7, stepRatio 0.1,
-      minSegmentDuration 0.0, zeroVoteReembed on)
-- [ ] Word-timing attribution + re-segmentation on speaker boundaries
-- [ ] Per-segment confidence gate, falling back to `them` (per PR #20)
-- [ ] Echo filter (port PR #25)
+- [x] `OfflineDiarizerManager` behind our own `Diarizing` protocol, owned by an actor
+      (threshold 0.7, stepRatio 0.1, minSegmentDuration 0.0, zeroVoteReembed on)
+- [x] Word-timing attribution + re-segmentation on speaker boundaries
+- [x] Per-segment confidence gate (overlap ≥50%, turn quality ≥0.5), falling back to `them`;
+      single detected speaker stays `them` rather than becoming a bare `S1`
+- [x] Echo filter (ported PR #25, generalised to match any far-end label)
+- [x] `plume diarize <file>` dev command for tuning against the corpus
+- [x] `expected_participants` (default 2 = a 1:1) capping far-end speakers via
+      `withSpeakers(max:)` — makes over-splitting a 1:1 structurally impossible rather than
+      merely unlikely
+- [ ] **Verify on the R3 corpus** — every multi-speaker path is unit-tested only
+- [ ] Settings pane for `expected_participants` and `transcript_echo_filter` (config-file only
+      today; participants is the one most likely to change per meeting)
 
 **Done when:** on the test corpus, a 3-person call yields distinct speakers **and a 1:1 yields
 exactly one remote speaker.** The second is the one expected to fail.
@@ -105,12 +113,24 @@ exactly one remote speaker.** The second is the one expected to fail.
 ## Human-dependent, start early
 
 - [ ] **Held-aside test corpus (R3).** Needs *real* meetings with real people, so it has a lead
-      time no amount of coding compresses, and Phase 2 cannot be signed off without it:
-  - [ ] a 1:1 (the case expected to fail)
-  - [ ] a 3-person call
-  - [ ] one recorded on speakers rather than headphones (for the echo filter)
-  Keep these outside the pipeline; they are the only way to tune diarization once production
-  audio is being deleted immediately.
+      time no amount of coding compresses. Copy each `system.caf`/`mic.caf` somewhere outside
+      `~/Meetings` before the audio is deleted. Each answers a specific question:
+
+  - [ ] **A 1:1 — the highest-value recording.** Settles whether threshold 0.7 over-splits one
+        voice: `plume diarize` it with `expected_participants: 0`. One speaker → drop the cap
+        and leave the diarizer unconstrained by default. Two+ → the cap is load-bearing and the
+        current default of 2 is correct. **This is the modal meeting; the default hinges on it.**
+  - [ ] **A 3-person call** — does it separate speakers correctly at `expected_participants: 3`,
+        and does it degrade to `them` (not mislabel) when left at the default 2?
+  - [ ] **One recorded on speakers** — echo filter against genuine interjections *over* far-end
+        speech. The 2026-08-14 recording proved echoes are dropped but contained no cross-talk,
+        which is the half that could produce false positives.
+  - [ ] **One where the far end is two people** — confirms the echo filter still fires when the
+        far end is labelled S1/S2 rather than `them`. Unit-tested only so far.
+
+- [ ] **Verify quill#2 across a real call** (connect *and* disconnect). The mic track must come
+      back full-length, not 1.7s. Only reachable with an actual call; guards against losing a
+      whole meeting.
 - [ ] Decide the recording disclosure wording for calls (R4).
 
 ---
@@ -128,6 +148,10 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | 2026-08-14 | First-run flow must tolerate a late permission grant | A grant made *during* a capture arrives too late for that capture. The app needs to re-run or re-prompt rather than report failure |
 | 2026-08-14 | **Keep `sharingType = .none`, keep the hide hotkey, promise nothing** | Spike B showed `.none` genuinely excludes the panel from ScreenCaptureKit capture on macOS 26.5.1 — it is not the no-op the plan assumed. The hotkey stays as defence in depth for untested capture paths (Zoom/Teams/Meet/browser) and future regressions; UI copy still must not claim privacy, since Apple guarantees nothing |
 | 2026-08-14 | **Fork verified end to end.** Plume.app records both tracks from `/Applications`: system −2.5 dBFS peak with audio playing, `-inf` when silent (correctly silent, not noise); mic captures speech | Confirms Spike A's result holds in the real app, not just the probe. Structure is now `PlumeKit` (all logic) + a one-line `plume` executable, so tests reach internals via `@testable` without making anything public |
+| 2026-08-14 | Documented all three `@unchecked Sendable` uses; `MicRecorder`'s is inherited debt, not justified | Writing "there is exactly one" in AGENTS.md and then grepping found three. quill#18 locked the racing *fields* but left the class-level conformance, so the debt is partially discharged, not removed — and the file claimed otherwise. Removing it is open work |
+| 2026-08-14 | **`expected_participants`, default 2, caps far-end speakers** instead of retuning the threshold | 1:1s are the modal meeting, and threshold 0.7 is tuned on 4-speaker AMI material with a deliberate anti-merge bias — its characteristic error on a two-person call is splitting one voice. Lowering the threshold would trade that against under-splitting group calls, which is the *worse* error (conflating two real people is unrecoverable; over-splitting is one merge click). The speaker cap avoids the trade: N participants ⇒ N−1 far-end speakers, a number known in advance. **Open:** whether 0.7 actually over-splits a real 1:1 — if not, uncapped becomes the better default |
+| 2026-08-14 | **Phase 2 verified on the echoed recording: 7 → 4 segments, all 3 mic duplicates dropped, no genuine speech lost.** Diarizer found 1 speaker and correctly kept `them` rather than inventing `S1` | End-to-end proof of the diarize → attribute → echo-filter chain. Note the multi-speaker path is still only covered by unit tests |
+| 2026-08-14 | **quill#25 needed the same kind of fix as #2/#18: it hardcodes the far-end speaker as `"them"`**, which was right before diarization and wrong after — S1/S2 echoes would have passed straight through | Generalised to "any non-mic speaker". Second instance of upstream PRs being mutually unaware; assume it for every remaining cherry-pick |
 | 2026-08-14 | **Merging quill#2 into quill#18 required a fix neither PR had.** #2 adds `lastBufferAt`, written from the tap thread and read on main; #18 is the PR that exists to lock exactly that class of state. Written independently, so upstream's #2 reintroduces the race #18 removes | `lastBufferAt` now lives inside `LockedState` alongside `file` and `firstBufferAt`. Worth remembering when taking further upstream PRs: they are mutually unaware, and combining two correct patches can still yield a broken result |
 | 2026-08-14 | **Echo reproduced on our own hardware, first try** — 3 of 7 segments in a speaker-playback recording were mic-side duplicates of system audio. Independently confirms PR #25's 477/641 finding | Phase 2's echo filter is not speculative. Crucially the duplicate pairs are *not identical* — "chatbot"/"chat bot", "Kodi"/"Cody", "trading files"/"creating files" — so string equality cannot work; #25's word-level LCS with a ≥70% containment threshold is the right shape |
 | 2026-08-14 | **This dev machine has a warm FluidAudio cache, so it cannot test cold start** (R7). Plume is intended for several machines, so first-run download is a real path, not a one-off | Test it deliberately: move `~/Library/Application Support/FluidAudio/Models/` aside and launch fresh. Models must be pulled from `doctor` at first launch with progress, never lazily after the first meeting ends |

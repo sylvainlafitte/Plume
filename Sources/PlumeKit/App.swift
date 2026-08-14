@@ -17,8 +17,16 @@ import Foundation
 public enum PlumeApp {
     @MainActor
     public static func run() {
-        if CommandLine.arguments.dropFirst().contains("doctor") {
+        let args = Array(CommandLine.arguments.dropFirst())
+        if args.contains("doctor") {
             runDoctorAndExit()
+        }
+        // Dev tool, not a product feature: diarize a file and print the turns.
+        // This is the tuning loop for the held-aside test corpus (docs/PLAN.md
+        // R3) — production audio is deleted, so config changes can only be
+        // evaluated against kept recordings.
+        if let index = args.firstIndex(of: "diarize"), index + 1 < args.count {
+            runDiarizeAndExit(path: args[index + 1])
         }
 
         let app = NSApplication.shared
@@ -45,6 +53,44 @@ public enum PlumeApp {
 
             """.utf8))
         exit(DoctorReport.allOK(checks) ? 0 : 1)
+    }
+
+    private static func runDiarizeAndExit(path: String) -> Never {
+        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let done = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var code: Int32 = 0
+
+        Task.detached {
+            let diarizer = OfflineDiarizer(maxSpeakers: Config.maxFarEndSpeakers())
+            do {
+                let started = Date()
+                try await diarizer.prepare()
+                let loaded = Date()
+                let turns = try await diarizer.diarize(url)
+                let finished = Date()
+
+                let speakers = Set(turns.map(\.speakerId)).sorted()
+                Swift.print("file      : \(url.lastPathComponent)")
+                Swift.print("engine    : \(diarizer.name)")
+                Swift.print(String(
+                    format: "model load: %.1fs   diarize: %.1fs",
+                    loaded.timeIntervalSince(started), finished.timeIntervalSince(loaded)))
+                Swift.print("speakers  : \(speakers.count) — \(speakers.joined(separator: ", "))")
+                Swift.print("turns     : \(turns.count)\n")
+                for turn in turns {
+                    Swift.print(String(
+                        format: "  %-4@ %7.2f → %7.2f  (%5.2fs, q=%.2f)",
+                        turn.speakerId as NSString, turn.start, turn.end,
+                        turn.end - turn.start, turn.quality))
+                }
+            } catch {
+                FileHandle.standardError.write(Data("diarization failed: \(error)\n".utf8))
+                code = 1
+            }
+            done.signal()
+        }
+        done.wait()
+        exit(code)
     }
 }
 

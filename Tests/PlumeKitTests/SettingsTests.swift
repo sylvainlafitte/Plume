@@ -59,3 +59,15 @@ struct SettingsTests {
         #expect(decoded == original)
     }
 }
+
+@Suite("Speaker-count bound")
+struct ExpectedParticipantsTests {
+    @Test("default is a 1:1, capping the far end at one speaker")
+    func defaultIsOneToOne() {
+        // The mic track is you by construction, so N participants means N-1
+        // far-end speakers. Default 2 → cap 1 → over-splitting a 1:1 into
+        // S1/S2 becomes structurally impossible, not merely unlikely.
+        #expect(Config.expectedParticipants() == 2)
+        #expect(Config.maxFarEndSpeakers() == 1)
+    }
+}

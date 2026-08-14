@@ -27,23 +27,14 @@ swift test             # unit tests
 swift build -c release
 ```
 
-**Never test audio capture with `swift run`. Its result is meaningless either way.** A bare
+**Never test audio capture with `swift run`. The result is meaningless either way.** A bare
 binary has **no TCC identity of its own** — capture is attributed to the *responsible process*,
-which from a terminal is the terminal. So a shell run tells you about your terminal's
-permissions, not Plume's:
-
-- responsible process lacks the grant → **full-length digital silence**, no error, no prompt,
-  every `OSStatus` `noErr`
-- responsible process holds the grant → captures fine, proving nothing about the app
-
-Both observed on 2026-08-14, same binary, hours apart (0% then 99.5% non-zero) as the terminal's
-permissions changed underneath. The `.app` is the only launch context with a *deterministic,
-self-owned* grant. Build and run the bundle, always.
+i.e. your terminal. Without that grant you get full-length digital silence, no error, no prompt,
+every `OSStatus` `noErr`; with it, capture works while proving nothing about the app. Both were
+observed hours apart from the same binary (0% then 99.5% non-zero). Only the `.app` has a
+deterministic, self-owned grant — build and run the bundle. This is why capture health must be
+checked empirically (invariant 4). A grant made *during* a run lands too late for it; re-run once.
 Evidence: [spikes/responsible-process/RESULTS.md](spikes/responsible-process/RESULTS.md).
-
-This is exactly why capture health must be checked empirically (invariant 4) — launch context
-alone does not predict it. A permission grant made *during* a run lands too late for that run;
-re-run once after granting.
 
 ## Constraints an agent will otherwise get wrong
 
@@ -56,9 +47,21 @@ DER before accepting it. All FluidAudio calls go behind our own protocol so this
 one-file diff.
 
 **Swift 6 strict concurrency is on.** `OfflineDiarizerManager` is a `public final class` with
-`nonisolated(unsafe)` state — it is *not* `Sendable` and needs an owning actor, not a protocol
-existential. Don't reach for `@unchecked Sendable` to make a warning go away; that is exactly
-the debt we inherited and removed.
+`nonisolated(unsafe)` state — not `Sendable`, so it needs an owning actor, not a protocol
+existential passed around.
+
+**Don't reach for `@unchecked Sendable` to silence a warning.** Anything short of provable
+exclusive ownership needs a lock (`OSAllocatedUnfairLock`, as in both recorders), not an
+assertion. There are **three** in the codebase and each must carry a comment saying why:
+
+- `ManagerBox` (`DiarizationEngine.swift`) — justified. Created inside one actor, stored only
+  there, never returned or passed to another task, touched only from isolated methods.
+- `Meter` (`AudioProbe.swift`) — justified. Written from the audio thread, read only after
+  capture has stopped, which is the happens-before.
+- `MicRecorder` — **inherited debt, not justified.** Quill added it for one
+  `DispatchQueue.main.async` capture and disabled checking on the whole class. quill#18 locked
+  the fields that were actually racing; the class conformance survives and still hides anything
+  new. Treat any new stored property there as suspect. Removing it is open work.
 
 **Use `OfflineDiarizerManager`, not `LSEENDDiarizer`.** The streaming diarizer is roughly twice
 the error rate on meeting audio and caps speaker count. We batch, so we use the offline VBx
@@ -66,6 +69,13 @@ pipeline. If you find code using the streaming one, it's a mistake.
 
 **Parakeet stays on `.v2`** (English-only, marginally better English WER). `.v3` is FluidAudio's
 default, so an omitted `version:` argument silently changes the model.
+
+**Diarizer settings are measured values, not preferences.** Don't expose or retune them; the
+evidence for each is in `DiarizationEngine.swift`. In particular, contain a mis-split 1:1 with
+`expected_participants` (default 2 ⇒ far end capped at one speaker), **never** by lowering the
+threshold: under-splitting conflates two real people irreversibly, over-splitting is one merge
+click. Any change here means re-running the test corpus, because production audio is deleted
+(invariant 5).
 
 **Ollama: use the native `/api/chat`, not the OpenAI-compatible `/v1`.** `/v1` has no `options`
 passthrough, so `num_ctx` is unsettable there and the context silently defaults to 4096 — which
@@ -111,7 +121,7 @@ dependencies without a note in PROGRESS.md saying what it replaced.
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-14, after Spike A.*
+*Last reviewed against the code: 2026-08-14, after Phase 2.*
 
 **Rule: update this file in the same commit as the change, never "later."** A separate
 documentation pass does not happen, and a constraint that is silently wrong is worse than one

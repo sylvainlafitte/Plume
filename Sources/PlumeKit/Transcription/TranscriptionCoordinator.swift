@@ -17,6 +17,7 @@ actor TranscriptionCoordinator {
     private var queue: [URL] = []
     private var draining = false
     private var engine: TranscriptionEngine?
+    private var diarizer: Diarizing?
     private var lastFailure: String?
     private var statusHandler: (@Sendable (Status) -> Void)?
 
@@ -90,6 +91,8 @@ actor TranscriptionCoordinator {
         }
         await engine?.release()
         engine = nil
+        await diarizer?.release()
+        diarizer = nil
         publish(lastFailure.map { .failed(session: $0) } ?? .idle)
         draining = false
         // An enqueue that landed between the loop exiting and the release
@@ -118,15 +121,54 @@ actor TranscriptionCoordinator {
                 log(dir, "skipping \(track.file): \(error)")
                 continue
             }
+            // Diarize the far-end track only. The mic track is you by
+            // construction — two-track capture gives me/them for free, so
+            // diarization only has to split the *remote* participants apart.
+            var attributed: [AttributedSegment]
+            if track.speaker == .them {
+                do {
+                    let diarizer = try await preparedDiarizer()
+                    let turns = try await diarizer.diarize(audio)
+                    let speakers = Set(turns.map(\.speakerId)).count
+                    log(dir, "diarized \(track.file): \(speakers) speaker(s), \(turns.count) turns")
+                    attributed = SpeakerAttribution.attribute(
+                        segments: segments, turns: turns, fallback: track.speaker)
+                } catch {
+                    // Degrade to Quill's behaviour rather than losing the
+                    // transcript: an un-split "them" is still a usable meeting.
+                    log(dir, "diarization failed for \(track.file): \(error) — keeping 'them'")
+                    attributed = segments.map {
+                        AttributedSegment(
+                            speaker: track.speaker, start: $0.start, end: $0.end, text: $0.text)
+                    }
+                }
+            } else {
+                attributed = segments.map {
+                    AttributedSegment(
+                        speaker: track.speaker, start: $0.start, end: $0.end, text: $0.text)
+                }
+            }
+
             let offset = TimeInterval(track.offsetMs) / 1000
-            merged += segments.map {
+            merged += attributed.map {
                 Transcript.Segment(
-                    speaker: track.speaker.label,
+                    speaker: $0.speaker.label,
                     start_ms: Int(($0.start + offset) * 1000),
                     end_ms: Int(($0.end + offset) * 1000),
                     text: $0.text
                 )
             }
+        }
+
+        // Both tracks are now on a common clock, which is what the echo filter
+        // needs to compare them. Runs before the sort so dropped segments never
+        // reach the transcript.
+        if Config.echoFilterEnabled() {
+            let result = EchoFilter.dropEchoes(merged)
+            if result.dropped > 0 {
+                log(dir, "echo filter dropped \(result.dropped) mic segment(s) duplicating far-end audio")
+            }
+            merged = result.segments
         }
         // Swift's sort is not stable, so ties on start_ms would order
         // arbitrarily — and re-running the same session could produce a
@@ -162,6 +204,18 @@ actor TranscriptionCoordinator {
         try await engine.prepare()
         self.engine = engine
         return engine
+    }
+
+    /// Lazily loaded alongside the ASR engine, and released on the same drain,
+    /// so an idle Plume holds neither set of weights. The diarizer models are
+    /// small (~21 MB) next to Parakeet's ~464 MB, but the lifecycle should be
+    /// uniform — and at 16 GB the summarizer needs the room (docs/PLAN.md R5).
+    private func preparedDiarizer() async throws -> Diarizing {
+        if let diarizer { return diarizer }
+        let diarizer = OfflineDiarizer(maxSpeakers: Config.maxFarEndSpeakers())
+        try await diarizer.prepare()
+        self.diarizer = diarizer
+        return diarizer
     }
 
     /// Fires the configured on_stop shell command with the session directory

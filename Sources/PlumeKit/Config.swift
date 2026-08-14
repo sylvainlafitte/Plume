@@ -15,12 +15,16 @@ struct Settings: Codable, Sendable, Equatable {
     var recordingsDir: String?
     var onStop: String?
     var micVoiceProcessing: Bool?
+    var transcriptEchoFilter: Bool?
+    var expectedParticipants: Int?
     var transcription: Transcription?
 
     enum CodingKeys: String, CodingKey {
         case recordingsDir = "recordings_dir"
         case onStop = "on_stop"
         case micVoiceProcessing = "mic_voice_processing"
+        case transcriptEchoFilter = "transcript_echo_filter"
+        case expectedParticipants = "expected_participants"
         case transcription
     }
 }
@@ -81,6 +85,30 @@ enum Config {
     /// recording meetings through the speakers.
     static func micVoiceProcessing() -> Bool {
         current().micVoiceProcessing ?? false
+    }
+
+    /// Drop mic segments that duplicate far-end speech. Default on: it costs
+    /// nothing when there is no echo, and echo is the norm when a meeting plays
+    /// through speakers. Set false to inspect the raw merge.
+    static func echoFilterEnabled() -> Bool {
+        current().transcriptEchoFilter ?? true
+    }
+
+    /// Typical number of people in a meeting, including you. Default 2 — a 1:1.
+    ///
+    /// The mic track is you by construction, so the far-end track holds
+    /// `expected - 1` speakers. That bound is handed to the diarizer, which
+    /// makes over-splitting structurally impossible rather than merely unlikely.
+    /// Set 0 to leave the diarizer unconstrained.
+    static func expectedParticipants() -> Int {
+        current().expectedParticipants ?? 2
+    }
+
+    /// Upper bound on far-end speakers, or nil for unconstrained.
+    static func maxFarEndSpeakers() -> Int? {
+        let expected = expectedParticipants()
+        guard expected > 0 else { return nil }
+        return Swift.max(1, expected - 1)
     }
 
     /// Resolve the recordings root from an optional CLI override.

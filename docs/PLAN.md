@@ -224,18 +224,29 @@ and stays consistent with the no-in-app-editor decision. Adding a template is dr
 *(Application Support rather than `~/Meetings/Templates/` so the meetings folder stays purely
 meetings. The trade-off is discoverability, which the menu item covers.)*
 
-**F10 — Settings: a small window, with the config file remaining authoritative.** Most settings
-are set-once and fine in `config.json`, but a few genuinely need UI: model choice (populate from
-`/api/tags`), recordings folder (needs a picker), the global hotkey (needs a key recorder), and
-launch-at-login (`SMAppService`). The window writes to the same `config.json` — one store, not two.
+**F10 — Settings: a small window, with the config file remaining authoritative.** The window
+reads and writes the same `config.json` — one store, not two, so a hand-edit and a UI edit can
+never disagree.
 
-This forces a fix that was already listed as debt: `Config.load()` re-parses JSON on every
-accessor call, which is untenable once a UI is writing to it. Cache it and watch the file, so
-hand-edits and UI edits both take effect.
+Implemented in Phase 1 (shell + folder picker, echo-cancellation and auto-transcribe toggles),
+along with the fix it forced: `Config` was re-parsing JSON on every accessor call. It is now a
+typed `Settings` struct behind an mtime-keyed cache, so hand-edits still take effect without a
+relaunch.
 
-Build the **shell** in Phase 1 (empty `Settings` scene, ⌘, from the menubar, plus the caching
-fix) and let each phase add its own pane as it introduces settings. That avoids a Phase 6
-big-bang where eleven scattered options have to be rediscovered.
+**Panes still to add, by the phase that introduces them:**
+
+| Setting | Key | Phase | Why it needs UI |
+|---|---|---|---|
+| Expected participants | `expected_participants` | **2 — pending** | Caps far-end speakers (F1). Default 2 = a 1:1. Currently config-file only, and it is the setting most likely to need changing per meeting |
+| Echo filter | `transcript_echo_filter` | **2 — pending** | Default on. Config-file only today; belongs next to the mic settings since the two interact |
+| Ollama model | — | 4 | Populate from `/api/tags`; typing a model name is error-prone |
+| Summary template default | — | 4 | Lists the templates folder |
+| Panel hotkey | — | 5 | Needs a key recorder |
+| Launch at login | — | deferred | `SMAppService.mainApp` — listed in Phase 1, not built |
+
+Deliberately *not* exposed: diarizer threshold, step ratio, overlap and quality gates. They are
+measured values with reasons recorded in code, not preferences — a wrong setting there produces
+a subtly bad transcript that cannot be redone (R3).
 
 **F11 — Ask is a row, not a surface.** Your instinct is right that it belongs with the summary,
 but it shouldn't be a third tab: Ask is most useful on *old* meetings, and a tab that only exists
@@ -605,8 +616,16 @@ works within a single meeting with no voice profile at all.
   round-trip; word-timing↔speaker attribution on synthetic segments; chunking budget in
   characters *(note: OpenOats' equivalent does count characters — what's broken there is the
   remedy, which keeps head+tail thirds regardless of size)*; speaker-rename anchoring.
-- **Diarization:** a 3-person call → distinct speakers, and a **1:1 → exactly one** remote
-  speaker. The second is the one that will fail.
+- **Diarization, on the R3 corpus.** Four questions, in priority order:
+  1. **Does threshold 0.7 over-split a real 1:1?** Run `plume diarize` on a 1:1 far-end track
+     with `expected_participants: 0` (uncapped). One speaker = the cap is belt-and-braces and
+     *uncapped* should become the default. Two or more = the cap is load-bearing, and the
+     current default is right. **This single measurement decides the default**, and it is the
+     highest-value test outstanding — 1:1s are the modal meeting.
+  2. **A 3-person call yields distinct speakers** with `expected_participants: 3`.
+  3. **A group call with the default (2) degrades to `them` for everyone** — honest, not
+     mislabelled. Confirms the failure mode of forgetting to change the setting.
+  4. **Speaker numbering follows first appearance**, so `S1` is whoever spoke first.
 - **Long meeting:** 2-hour transcript through Phase 4; confirm the middle is represented.
 - **Crash resume:** kill the app after each stage; confirm it resumes and never re-runs a
   completed stage. Kill it during `awaiting_wrapup` and confirm the meeting reappears as
@@ -641,8 +660,12 @@ works within a single meeting with no voice profile at all.
 - **Mic survives a call (R6):** record across a real FaceTime or Zoom connect *and* disconnect;
   the mic track must be full-length, not 1.7 seconds. Swap headphones for AirPods mid-call and
   confirm capture resumes.
-- **Echo filter (R9):** record a meeting on speakers and confirm far-end sentences appear once,
-  not twice, while genuine interjections over far-end speech survive.
+- **Echo filter (R9):** ✅ *verified 2026-08-14 on a real recording* — 7 segments → 4, all three
+  mic duplicates dropped. Still to check on the corpus: that genuine interjections **over**
+  far-end speech survive, which the first recording had none of.
+- **Echo filter meets diarization:** with the far end split into S1/S2, confirm echoes are still
+  caught. Upstream's filter compared against the literal `"them"` and would have missed them;
+  covered by a unit test, not yet by real audio.
 - **Smoke test (2 min, replaces a former risk):** feed a real `system.caf` to
   `OfflineDiarizerManager.process(_ url:)`. It routes through `AVAudioFile` + `AVAudioConverter`
   and FluidAudio's docs list CAF explicitly, so this is expected to pass.

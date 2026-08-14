@@ -13,6 +13,12 @@ import os.lock
 /// sides, or it silently delivers zeroed buffers (rca-001). A first-second
 /// liveness check catches routes where even the correct graph stays silent
 /// and restarts capture raw.
+/// The `@unchecked Sendable` here is **inherited debt, not a justified assertion**. Quill added
+/// it to satisfy one `DispatchQueue.main.async` capture, which disabled checking on the whole
+/// class. quill#18 fixed the part that mattered — `file`, `firstBufferAt` and `lastBufferAt` are
+/// now behind a lock — but the class-level conformance remains and still hides anything new
+/// added here. Removing it means proving every remaining cross-thread field safe; until then,
+/// treat any new stored property on this class as suspect. See AGENTS.md.
 final class MicRecorder: @unchecked Sendable {
     enum RecorderError: Error, CustomStringConvertible {
         case engineStartFailed(Error)
