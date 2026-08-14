@@ -1,8 +1,12 @@
 # Progress
 
-Living log. [docs/PLAN.md](PLAN.md) holds the design and the reasoning behind it; this file
-holds **what has actually happened**, and — the part that matters most across sessions — what
-was tried and rejected, so nobody re-runs a dead end.
+Living log of **what has actually happened**, and — the part that matters most across sessions —
+what was tried and rejected, so nobody re-runs a dead end.
+
+Sibling documents: [AGENTS.md](../AGENTS.md) is the source of truth for how things work *now*
+and takes precedence over the plan; [PLAN.md](PLAN.md) holds the design and the reasoning behind
+it, and becomes a historical record as phases land. When work here changes a constraint, update
+AGENTS.md **in the same commit**.
 
 ---
 

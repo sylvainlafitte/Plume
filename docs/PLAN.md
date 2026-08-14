@@ -1,5 +1,10 @@
 # Plume — local meeting transcription & AI summaries
 
+> **Status: design record.** This was written before implementation and captures *why* each
+> decision was made. As phases land it becomes history rather than instruction — for how the
+> code actually works today, [AGENTS.md](../AGENTS.md) is the source of truth and wins any
+> disagreement. Progress and dead ends live in [PROGRESS.md](PROGRESS.md).
+
 ## Context
 
 Build a minimalist macOS meeting-notes app: record a call, transcribe with speaker
