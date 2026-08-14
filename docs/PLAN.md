@@ -97,11 +97,21 @@ engine-selection layer. Required model set is 464 MB (Quill's "~600 MB" comment 
   silently dropped. **Send `truncate: false, shift: false`** so it becomes an HTTP error we can
   surface. This is the plan's own fail-loudly doctrine and it's free.
 
-**Consequence:** because Phase 4 always map-reduces (F6), we never need a large context. Set
-`num_ctx: 8192`, always chunk, and stop there. This matters beyond simplicity: sending an
-explicit `num_ctx` sets `usesAutomaticNumCtx = false`, which **disables Ollama's automatic
-context reduction on load OOM** (`server/sched.go:757`) — on a machine with 10.7 GiB of working
-set and a 9.6 GB model, that safety net is worth not losing to an over-ambitious value.
+**Consequence — revised 2026-08-14 by [Spike C](../spikes/num-ctx/RESULTS.md).** The plan set
+`num_ctx: 8192` and always chunked, on the assumption that a larger context might not fit.
+Measurement says otherwise: gemma4's KV cache costs **16 KiB/token**, because only 4 of its 42
+layers carry a full-context cache (20 use a 1024-cell sliding window, 18 share KV). Totals:
+8192 → 168 MiB, **32768 → 552 MiB**, 65536 → 1064 MiB. Generation verified at 32768: 33.6 tok/s,
+100% GPU.
+
+**So use `num_ctx: 32768`.** A 1-hour meeting is ~15k tokens and summarizes in a *single pass*,
+which removes cross-window context loss for the common case. Map-reduce stays implemented but
+becomes the **fallback past roughly 2.5 hours**, not the default — it is what keeps the
+no-silent-truncation guarantee true for any input length.
+
+Still send an explicit `num_ctx`: it sets `usesAutomaticNumCtx = false` and so forgoes Ollama's
+automatic context reduction on load OOM (`server/sched.go:757`), which is an acceptable trade
+now that the value is measured rather than guessed.
 
 **F4 — Floating panel configuration [verified against source].**
 
@@ -127,12 +137,28 @@ fails. Resize, or use two panels.
 Accept the real cost: while the panel has keyboard focus, **Zoom's in-meeting shortcuts (mute,
 push-to-talk) will not fire.**
 
-**B2 — `sharingType = .none` no longer hides windows from screen shares. [verified]** It only
-ever blocked the legacy CoreGraphics path; on macOS 15.4+ ScreenCaptureKit — which Zoom, Teams,
-Meet and QuickTime all use — captures such windows anyway. Apple DTS: "At this time there are
-no public APIs for preventing screen capture." **Design accordingly:** assume the notes panel
-is visible in any desktop share, bind an explicit hide hotkey, and make no privacy promise.
-Set `sharingType = .none` anyway (free, helps on legacy paths) but do not test for it.
+**Confirmed by [Spike B](../spikes/panel/RESULTS.md) 2026-08-14:** keystrokes land in a SwiftUI
+`TextField` inside the panel while the other app keeps frontmost status. `.titled` gives key-window
+status without `.nonactivatingPanel` surrendering the foreground app — no `canBecomeKey` override
+needed, as predicted.
+
+**B2 — ~~`sharingType = .none` no longer hides windows from screen shares.~~ CORRECTED
+2026-08-14 by [Spike B](../spikes/panel/RESULTS.md): it still works.** Measured on macOS 26.5.1
+against QuickTime's ScreenCaptureKit-backed recorder — the `.none` panel was absent from the
+capture while an otherwise identical `.readOnly` control panel appeared normally.
+
+The original claim came from an Apple DTS statement that "there are no public APIs for
+preventing screen capture." That is Apple declining to *guarantee* exclusion as a security
+boundary — still true — not evidence the mechanism is non-functional. This was tagged
+`[verified]` when what had been verified was that Apple says it, not that it fails here. Treat
+the remaining `[verified]` tags with that distinction in mind: some are citations, not
+measurements.
+
+**Design accordingly:** keep `sharingType = .none`; it does real work. Keep the explicit hide
+hotkey too — defence in depth for the capture paths not individually tested (Zoom, Teams, Meet,
+browser `getDisplayMedia`) and for any future regression. Still make **no privacy promise** in
+UI copy: it is best-effort, it says nothing about a phone pointed at the screen, and Apple
+offers no guarantee.
 
 **F8 — The panel is the whole post-meeting flow, and summarization is gated on a human.**
 Stopping the recording does not end the interaction. The panel stays up and expands, so final
@@ -483,9 +509,11 @@ the transcript region has been written — but only then, so a crash before that
 *Done when:* a recording produces one `meeting.md`, and killing the app mid-pipeline resumes
 correctly from each stage.
 
-**Phase 4 — Summaries.** `SummaryEngine` over Ollama's native `/api/chat`: `num_ctx: 8192`,
-`truncate: false`, `shift: false`, 300s timeout for cold model start. Map-reduce always —
-~10-minute windows summarized independently, then synthesized. Templates as markdown files with
+**Phase 4 — Summaries.** `SummaryEngine` over Ollama's native `/api/chat`: `num_ctx: 32768`
+(measured — Spike C), `truncate: false`, `shift: false`, 300s timeout for cold model start.
+Single pass when the transcript fits; map-reduce over ~10-minute windows only when it doesn't.
+Handle "Ollama daemon not running" as a first-run state, not an error — Ollama.app starts it
+lazily. Templates as markdown files with
 a seed-on-first-run step and an "Open Templates Folder" item (F9). Title and speaker-name
 proposals via schema-constrained `format` output in the same reduce call, plus the folder rename
 (F12). Settings pane: model picker from `/api/tags`, template default. Wrap
@@ -531,10 +559,10 @@ and see only the summary region and its frontmatter keys change.
 **Phase 7 — Ask (optional).** One SwiftUI component — an input row pinned under the Summary view
 — hosted in both the wrap-up panel and the history window (F11), with a "save answer to notes"
 action that appends to the Notes region. Same client as Phase 4, with a non-zero `keep_alive`
-during a session and an explicit unload on close. The whole transcript does **not** fit: at
-`num_ctx: 8192` a long meeting overflows, so Ask reuses Phase 4's chunking — retrieve the
-relevant windows by keyword/recency, not the entire file. Still no embeddings; still one
-meeting at a time. First candidate to cut.
+during a session and an explicit unload on close. At `num_ctx: 32768` most meetings fit whole,
+so Ask sends the full transcript by default and falls back to Phase 4's chunked retrieval only
+when it doesn't — a 2-hour meeting is ~30k tokens and leaves no room for the exchange. Still no
+embeddings; still one meeting at a time. First candidate to cut.
 
 ## Scope
 
@@ -559,7 +587,7 @@ works within a single meeting with no voice profile at all.
 | **R2** | **Diarization accuracy is the highest-variance component.** 10.6% DER is AMI-SDM (4 speakers, single distant mic) — a proxy, not a guarantee for VoIP | Per-segment confidence gate falls back to `them` rather than guessing (PR #20). Rename **and merge** are the human fixes. Test the 1:1 case explicitly (F1). |
 | **R3** | **No audio means no re-runs.** Deleting immediately is a decided requirement, so a meeting with mislabelled speakers or a silent mic track is simply lost | Tuning happens against a **held-aside test corpus**: 3–4 recordings (a 1:1, a 3-person call, one on speakers) kept outside the pipeline, used to re-run diarization config. Makes Phase 2's acceptance criteria load-bearing. Strengthens R6 — a dead tap must be caught *live*. **Also: "deleted" is a retention policy, not secure erasure.** Audio may survive in Time Machine, APFS local snapshots, or a synced folder. If `~/Meetings` ever lands in iCloud Drive, `.plume/` must be excluded. |
 | **R4** | **Consent and legal exposure.** Plume records other people with no notice or indicator. Recording a private conversation without participants' knowledge is a criminal offence in France (Code pénal art. 226-1) and in US two-party-consent states | Visible recording indicator; a one-line disclosure to paste into chat. Cheap now, awkward to retrofit. Verify for your own jurisdiction. |
-| **R5** | **16 GB is tight.** 9.6 GB model in a ~10.7 GiB working set, plus KV cache with a 10× unknown | Phase 1 spike measures it. Sequence: transcribe → diarize → `release()` → summarize → unload *our* model with `keep_alive: 0`. Do not evict other apps' models unless the opt-in aggressive mode is on. `OLLAMA_KV_CACHE_TYPE=q8_0` and `OLLAMA_FLASH_ATTENTION=1` are server env vars — document as setup, not app config. |
+| **R5** | ~~16 GB is tight.~~ **Largely defused for summarization** ([Spike C](../spikes/num-ctx/RESULTS.md)): KV is 552 MiB at 32768, so weights + cache ≈ 10.2 GB against a ~11.5 GB working set, generating at 33.6 tok/s. The remaining risk is *sequencing*, not context size | Release ASR and diarizer models before summarizing. Sequence: transcribe → diarize → `release()` → summarize → unload *our* model with `keep_alive: 0`. Do not evict other apps' models unless the opt-in aggressive mode is on. `OLLAMA_KV_CACHE_TYPE=q8_0` and `OLLAMA_FLASH_ATTENTION=1` are server env vars — document as setup, not app config. |
 | **R6** | **Mic capture dies when a call app takes the input device — the core use case, not an edge case.** PR #2 reports a 19-minute FaceTime call producing a **1.7-second** mic track, silently. Sleep/wake and AirPods switching are the same class | Port #2 (restart on `AVAudioEngineConfigurationChange`, 0.5s debounce, re-attach to the same file, zero-pad the dead span so timestamps stay wall-clock true) **and** #6 (15s size-poll watchdog, notify on a 45s stall). Also observe `NSWorkspace.willSleepNotification`. Both land in Phase 1. |
 | **R7** | **First run downloads 486 MB lazily inside `prepare()`** — i.e. after the first meeting ends, on whatever network, with no progress UI in a menubar app | Pull models from `doctor` at first launch using FluidAudio's `progressHandler`. |
 | **R8** | **Temp-disk surprise.** `makeDiskBackedSource` converts the whole file to 16 kHz mono float32 in `temporaryDirectory` before mmapping — ~460 MB for a 2-hour meeting, leaked if it crashes mid-diarization | Clean up on launch as well as on completion. |
@@ -582,8 +610,9 @@ works within a single meeting with no voice profile at all.
 - **Crash resume:** kill the app after each stage; confirm it resumes and never re-runs a
   completed stage. Kill it during `awaiting_wrapup` and confirm the meeting reappears as
   pending with its notes intact.
-- **Panel, during:** type notes in a live Zoom call — Zoom stays frontmost.
-  *(Do not test for screen-share invisibility; per B2 it will be visible.)*
+- **Panel, during:** type notes in a live Zoom call — Zoom stays frontmost. Screen-share the
+  desktop and confirm the panel is **absent** from the share (B2, corrected — `.none` works;
+  verify against the actual conferencing app, not just QuickTime).
 - **Panel, after:** stop recording, add wrap-up lines while transcription is still running,
   Summarize, and confirm the late lines are reflected in the output.
 - **Back-to-back (R11):** start a second recording with the first still in wrap-up; neither
