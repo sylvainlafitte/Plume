@@ -1,0 +1,62 @@
+#!/bin/bash
+# Assemble Plume.app from the SwiftPM build.
+#
+# Plume MUST run as a bundle. A shell-launched binary creates a system-audio tap that
+# reports success at every step and records full-length digital silence, because TCC
+# attributes the request to the responsible process — the terminal. Measured in
+# spikes/responsible-process/RESULTS.md. `swift run` is not a valid way to test capture.
+#
+# Usage:
+#   ./build-app.sh              debug build
+#   ./build-app.sh release      release build
+#   ./build-app.sh release run  build, install to /Applications, launch
+
+set -euo pipefail
+cd "$(dirname "$0")"
+
+CONFIG="${1:-debug}"
+ACTION="${2:-}"
+APP="Plume.app"
+
+echo "▸ building ($CONFIG)"
+swift build -c "$CONFIG"
+BIN="$(swift build -c "$CONFIG" --show-bin-path)/plume"
+
+echo "▸ assembling $APP"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp "$BIN" "$APP/Contents/MacOS/plume"
+
+# SwiftPM's build directory carries extended attributes (com.apple.provenance and
+# friends) that codesign rejects as "resource fork, Finder information, or similar
+# detritus". Learned the hard way in Spike A.
+xattr -cr "$APP"
+
+# Ad-hoc signature. Note the cdhash changes on every rebuild, so macOS may re-prompt
+# for permissions after each build. A stable signing identity fixes that later.
+echo "▸ signing (ad-hoc)"
+codesign --force --sign - --timestamp=none "$APP"
+codesign --verify --verbose=2 "$APP" 2>&1 | sed 's/^/    /'
+
+echo "▸ built $APP"
+
+if [ "$ACTION" = "run" ]; then
+    echo "▸ installing to /Applications and launching"
+    pkill -x plume 2>/dev/null || true
+    rm -rf "/Applications/$APP"
+    cp -R "$APP" /Applications/
+    open "/Applications/$APP"
+    echo "  running — look for the feather in the menu bar"
+else
+    cat <<EOF
+
+Launch it through LaunchServices, never from the shell:
+
+    open $APP
+
+Or install and run in one step:
+
+    ./build-app.sh release run
+EOF
+fi
