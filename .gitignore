@@ -1,0 +1,35 @@
+# ---- Never commit meeting content ----
+# Meetings live in ~/Meetings by default, but guard against a stray config,
+# a test run pointed at the repo, or a spike writing where it shouldn't.
+# These files contain other people's voices and words.
+Meetings/
+Recordings/
+**/.plume/
+*.caf
+*.m4a
+# NOTE: *.wav is deliberately NOT ignored — Phase 2 needs committed WAV/RTTM
+# diarization fixtures. Keep real meeting audio out by path, not extension.
+
+# ---- Models (hundreds of MB, re-downloadable) ----
+Models/
+*.mlmodelc/
+*.mlpackage/
+
+# ---- Swift / SPM ----
+.build/
+.swiftpm/
+*.o
+*.dSYM/
+
+# ---- Xcode ----
+DerivedData/
+xcuserdata/
+*.xcuserdatad/
+build/
+
+# ---- Built products ----
+*.app/
+*.dmg
+
+# ---- macOS ----
+.DS_Store
