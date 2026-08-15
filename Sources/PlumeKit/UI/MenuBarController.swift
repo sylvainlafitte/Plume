@@ -112,9 +112,7 @@ final class MenuBarController {
         let isRecording = state.recording.isRecording
         stateLabel.title = isRecording
             ? "● recording · \(state.elapsedText ?? "0:00")"
-            : (state.pendingCount > 0
-                ? "idle · \(state.pendingCount) without a summary"
-                : "idle")
+            : "idle"
         toggleItem.title = isRecording ? "Stop recording" : "Start recording"
         // Only while a meeting is actually in flight. Once it is summarized it
         // is history, and the Meetings window opens on exactly that — a second

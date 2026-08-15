@@ -67,8 +67,6 @@ final class HistoryModel: MeetingDetailModel {
     var selected: MeetingEntry? { entries.first { $0.url == selection } }
     /// MeetingDetailModel's view of "the meeting on screen" is the selection.
     var session: URL? { selection }
-    /// Surfaced as a count so a stalled queue is visible rather than inferred.
-    var awaitingCount: Int { entries.filter(\.awaitingSummary).count }
 
     init(root: URL) {
         self.root = root
@@ -317,9 +315,6 @@ struct HistoryView: View {
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Text("\(model.entries.count) meetings")
-                if model.awaitingCount > 0 {
-                    Text("· \(model.awaitingCount) without a summary")
-                }
                 Spacer()
                 Button {
                     model.openRootFolder()

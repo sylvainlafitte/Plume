@@ -87,7 +87,6 @@ actor TranscriptionCoordinator {
             do {
                 try await transcribe(dir)
                 try? SessionState.advance(dir, to: .transcribed)
-                notifyUser(title: "plume — transcript ready", body: dir.lastPathComponent)
                 runHook(for: dir)
             } catch {
                 log(dir, "transcription failed: \(error)")

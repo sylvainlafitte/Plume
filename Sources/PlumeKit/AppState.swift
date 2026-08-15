@@ -48,10 +48,6 @@ public final class AppState {
     public var transcription: Transcription = .idle
     public private(set) var lastFailure: Failure?
 
-    /// Meetings recorded but not yet transcribed. Surfaced so a stuck queue is
-    /// visible rather than inferred from a folder listing.
-    public var pendingCount: Int = 0
-
     /// Whether the meeting panel has something to show. Drives the menubar
     /// item's enabled state — an action that does nothing is worse than none.
     public var hasPanelSession: Bool = false

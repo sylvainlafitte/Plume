@@ -198,16 +198,12 @@ final class AppController {
             self?.settingsWindow.onRunDiagnostics = { [weak self] in self?.runDiagnostics() }
             self?.settingsWindow.show()
         }
-        menuBar.onOpenHistory = { [weak self] in
-            self?.historyWindow.show()
-            self?.refreshPending()
-        }
+        menuBar.onOpenHistory = { [weak self] in self?.historyWindow.show() }
         menuBar.onTogglePanel = { [weak self] in self?.meetingPanel.focus() }
         meetingPanel.onStopRequested = { [weak self] in self?.stopSessionIfRecording() }
         meetingPanel.onSessionFinished = { [weak self] in
             guard let self else { return }
             self.state.hasPanelSession = self.meetingPanel.hasSession
-            self.refreshPending()
         }
 
         observeState()
@@ -226,19 +222,6 @@ final class AppController {
                 }
             }
             await transcription.resumePending(root: root)
-        }
-        refreshPending()
-    }
-
-    /// Count meetings transcribed but never summarized (R10). A human-gated
-    /// summary is one that may never happen — closing the laptop after a call is
-    /// normal — so it has to be visible somewhere rather than only inferable
-    /// from a folder listing.
-    func refreshPending() {
-        let root = self.root
-        Task.detached(priority: .utility) {
-            let count = MeetingLibrary.entries(in: root).filter(\.awaitingSummary).count
-            await MainActor.run { [weak self] in self?.state.pendingCount = count }
         }
     }
 
@@ -316,7 +299,6 @@ final class AppController {
 
         let dir = session.dir
         Task { [transcription] in await transcription.enqueue(dir) }
-        refreshPending()
     }
 
     /// Run the full checks including the ~2s empirical capture probes, then show
