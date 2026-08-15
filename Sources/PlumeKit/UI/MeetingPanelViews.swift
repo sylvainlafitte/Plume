@@ -55,7 +55,7 @@ struct MeetingPillView: View {
                 }
             }
             .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -169,19 +169,22 @@ struct WrapUpView: View {
                     ForEach(controller.templates, id: \.id) { Text($0.name).tag($0.id) }
                 }
                 .labelsHidden()
-                .frame(maxWidth: 150)
-
-                Button(controller.summary.isEmpty ? "Summarize" : "Regenerate") {
-                    controller.summarize()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!controller.transcriptReady || controller.isGenerating)
+                .pickerStyle(.menu)
+                .fixedSize()
 
                 if controller.isGenerating {
                     ProgressView().controlSize(.small)
                 } else if !controller.transcriptReady {
                     Text("transcribing…").font(.caption2).foregroundStyle(.secondary)
                 }
+
+                Spacer(minLength: 8)
+
+                Button(controller.summary.isEmpty ? "Summarize" : "Regenerate") {
+                    controller.summarize()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!controller.transcriptReady || controller.isGenerating)
             }
         }
     }

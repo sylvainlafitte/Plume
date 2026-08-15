@@ -33,7 +33,7 @@ final class MeetingPanel {
     private var hosting: NSHostingView<AnyView>?
     private(set) var mode: Mode = .recording
 
-    private static let pillSize = NSSize(width: 84, height: 26)
+    private static let pillSize = NSSize(width: 84, height: 28)
     private static let stripSize = NSSize(width: 340, height: 300)
     private static let wrapUpSize = NSSize(width: 430, height: 580)
 
@@ -48,7 +48,12 @@ final class MeetingPanel {
     func show(_ mode: Mode, content: some View) {
         self.mode = mode
         let panel = ensurePanel()
-        hosting?.rootView = AnyView(content)
+        // `.titled` reserves a titlebar-height safe area even when the titlebar
+        // is transparent and hidden, and SwiftUI dutifully insets below it —
+        // which showed up as a band of dead space above our own header, and as
+        // a cropped clock in the pill. We draw all our chrome ourselves, so
+        // there is nothing to leave room for.
+        hosting?.rootView = AnyView(content.ignoresSafeArea())
 
         let target = Self.size(for: mode)
         if panel.frame.size != target {
@@ -115,6 +120,12 @@ final class MeetingPanel {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.sharingType = .none
         panel.setFrameAutosaveName("PlumeMeetingPanel")
+
+        // `.titled` is needed to become key (Spike B), but the buttons that
+        // normally come with it are replaced by our own — see PanelControls.
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            panel.standardWindowButton(button)?.isHidden = true
+        }
 
         let hosting = NSHostingView(rootView: AnyView(EmptyView()))
         hosting.frame = panel.contentView?.bounds ?? .zero
