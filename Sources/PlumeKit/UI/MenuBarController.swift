@@ -17,6 +17,7 @@ final class MenuBarController {
     var onDismissFailure: (() -> Void)?
     var onRunDiagnostics: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onTogglePanel: (() -> Void)?
 
     init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -56,6 +57,13 @@ final class MenuBarController {
         )
         menu.addItem(openFolder)
 
+        let panelItem = NSMenuItem(
+            title: "Show notes panel",
+            action: #selector(togglePanelClicked),
+            keyEquivalent: "n"
+        )
+        menu.addItem(panelItem)
+
         // Capture health can only be verified empirically, and only from inside
         // the bundle — see AudioProbe. This is the only place that check is
         // meaningful, so it needs to be reachable.
@@ -82,7 +90,7 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
-        for item in [toggleItem, openFolder, diagnostics, settings, quit, failureItem] {
+        for item in [toggleItem, panelItem, openFolder, diagnostics, settings, quit, failureItem] {
             item.target = self
         }
 
@@ -156,4 +164,5 @@ final class MenuBarController {
     @objc private func dismissFailureClicked() { onDismissFailure?() }
     @objc private func runDiagnosticsClicked() { onRunDiagnostics?() }
     @objc private func openSettingsClicked() { onOpenSettings?() }
+    @objc private func togglePanelClicked() { onTogglePanel?() }
 }

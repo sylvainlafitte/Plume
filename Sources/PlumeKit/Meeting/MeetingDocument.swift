@@ -139,11 +139,32 @@ enum MeetingDocument {
         path: String = "meeting.md"
     ) throws -> String {
         let (start, end) = try markerRange(region, in: document, path: path)
+        let cleaned = stripLeadingHeading(region, from: body)
         let replacement =
             "\n\(region.heading)\n\n"
-            + (body.trimmingCharacters(in: .newlines).isEmpty
-                ? "" : body.trimmingCharacters(in: .newlines) + "\n")
+            + (cleaned.isEmpty ? "" : cleaned + "\n")
         return document.replacingCharacters(in: start..<end, with: replacement)
+    }
+
+    /// Drop a heading the body repeats, so the region's own heading isn't doubled.
+    ///
+    /// Summary templates instruct the model to emit `## Summary` as its first
+    /// section — sensible in isolation, but the region already carries that
+    /// heading, and the result was two in a row. Stripping here rather than
+    /// forbidding it in the prompt keeps the templates readable standalone and
+    /// tolerates a user writing their own.
+    static func stripLeadingHeading(_ region: Region, from body: String) -> String {
+        var trimmed = body.trimmingCharacters(in: .newlines)
+        let heading = region.heading
+        while true {
+            let candidate = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard candidate.lowercased().hasPrefix(heading.lowercased()) else { break }
+            let after = candidate.dropFirst(heading.count)
+            // Only a heading on its own line, not "## Summary of costs".
+            guard after.isEmpty || after.first == "\n" else { break }
+            trimmed = String(after).trimmingCharacters(in: .newlines)
+        }
+        return trimmed
     }
 
     /// Range between a region's markers, exclusive of the markers themselves.

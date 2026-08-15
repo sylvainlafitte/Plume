@@ -178,6 +178,7 @@ final class AppController {
     private let menuBar = MenuBarController()
     private let transcription = TranscriptionCoordinator()
     private let settingsWindow = SettingsWindowController()
+    private let meetingPanel = MeetingPanelController()
     private var session: RecordingSession?
     private var ticker: Timer?
 
@@ -189,6 +190,8 @@ final class AppController {
         menuBar.onDismissFailure = { [weak self] in self?.state.clearFailure() }
         menuBar.onRunDiagnostics = { [weak self] in self?.runDiagnostics() }
         menuBar.onOpenSettings = { [weak self] in self?.settingsWindow.show() }
+        menuBar.onTogglePanel = { [weak self] in self?.meetingPanel.focus() }
+        meetingPanel.onStopRequested = { [weak self] in self?.stopSessionIfRecording() }
 
         observeState()
 
@@ -246,6 +249,7 @@ final class AppController {
             session = newSession
             state.recording = .recording(since: newSession.startedAt)
             state.clearFailure()
+            meetingPanel.startedRecording(session: newSession.dir, at: newSession.startedAt)
             FileHandle.standardError.write(Data("● recording → \(newSession.dir.path)\n".utf8))
         } catch {
             state.report("recording failed to start: \(error)")
@@ -259,6 +263,7 @@ final class AppController {
             MainActor.assumeIsolated {
                 guard let self, case .recording(let since) = self.state.recording else { return }
                 self.state.recording = .recording(since: since)
+                self.meetingPanel.tick()
             }
         }
     }
@@ -274,6 +279,9 @@ final class AppController {
         ticker?.invalidate()
         ticker = nil
         state.recording = .idle
+        // The panel stays up and expands: the meeting isn't over for the user
+        // just because the recording is (docs/PLAN.md F8).
+        meetingPanel.stoppedRecording()
 
         let dir = session.dir
         Task { [transcription] in await transcription.enqueue(dir) }

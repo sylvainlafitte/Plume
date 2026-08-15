@@ -12,9 +12,9 @@ AGENTS.md **in the same commit**.
 
 ## Current state
 
-**Phase:** 4 code-complete; 5 next (the panel)
-**Next action:** Phase 5 — the recording strip and wrap-up panel, which is where summarizing
-stops being a CLI command and becomes a button.
+**Phase:** 5 verified; 6 next (history window)
+**Next action:** Phase 6 — the history window (list, open in editor, regenerate, rename), which
+is the last piece before Ask.
 Phase 2's multi-speaker paths stay unverified until the corpus exists; that does **not** block
 later phases, but it does block calling Phase 2 done.
 
@@ -112,12 +112,18 @@ exactly one remote speaker.** The second is the one expected to fail.
 - [x] Settings: model picker from `/api/tags`, default-template picker, open-templates-folder
 - [x] `doctor`: Ollama reachability, model installed, context reported
 - [x] `plume summarize <session> [--template id]` dev command
-- [ ] Wire the trigger into the UI — currently CLI-only; Phase 5 puts it in the wrap-up panel
+- [x] Trigger wired into the wrap-up panel (Phase 5); the CLI command remains for tuning
 
 ### Phase 5 — The panel
-- [ ] Recording strip (non-activating) + hotkeys
-- [ ] Wrap-up: Notes (editable `TextEditor`) / Summary tabs
-- [ ] Speaker list: rename, merge, drop-to-`them`
+- [x] Recording strip (non-activating), ↩ saves a stamped note and keeps focus, hide button
+- [x] Wrap-up: expands and activates on Stop; Notes (editable) / Summary tabs; summarize with
+      template picker; open-in-editor
+- [x] Speaker list: rename, merge, proposals shown *with their evidence*
+- [x] `NotesStore` — append-with-timestamp during the call, whole-file editing at wrap-up,
+      `--- after the call ---` boundary marker
+- [x] **Verified live 2026-08-15:** ↩ saved notes, frontmost was not stolen, panel expanded on
+      Stop, wrap-up notes were editable and reached the summary
+- [ ] Global hotkey (needs Carbon `RegisterEventHotKey`) — menubar "Show notes panel" for now
 
 ### Phase 6 — History window
 - [ ] List, open in external editor, reveal in Finder, regenerate, rename
@@ -167,6 +173,7 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | 2026-08-14 | First-run flow must tolerate a late permission grant | A grant made *during* a capture arrives too late for that capture. The app needs to re-run or re-prompt rather than report failure |
 | 2026-08-14 | **Keep `sharingType = .none`, keep the hide hotkey, promise nothing** | Spike B showed `.none` genuinely excludes the panel from ScreenCaptureKit capture on macOS 26.5.1 — it is not the no-op the plan assumed. The hotkey stays as defence in depth for untested capture paths (Zoom/Teams/Meet/browser) and future regressions; UI copy still must not claim privacy, since Apple guarantees nothing |
 | 2026-08-14 | **Fork verified end to end.** Plume.app records both tracks from `/Applications`: system −2.5 dBFS peak with audio playing, `-inf` when silent (correctly silent, not noise); mic captures speech | Confirms Spike A's result holds in the real app, not just the probe. Structure is now `PlumeKit` (all logic) + a one-line `plume` executable, so tests reach internals via `@testable` without making anything public |
+| 2026-08-15 | Region headings are de-duplicated when writing a region | The first real summary came out with `## Summary` twice: the region carries the heading, and the template also tells the model to emit it. Stripping on write keeps templates readable standalone and tolerates user-written ones — the same wart noted in OpenOats, reproduced and then fixed |
 | 2026-08-15 | **Ad-hoc signing was why permissions reset on every rebuild.** Switched `build-app.sh` to the existing Apple Development identity | An ad-hoc signature's Designated Requirement is the cdhash, which changes with every build, so macOS saw each rebuild as a new app. A certificate-backed DR keys on cert + bundle ID and survives. `PLUME_SIGN_ID=-` forces ad-hoc if needed |
 | 2026-08-15 | `RecordingSession` is now `@MainActor` rather than carrying an unchecked capture | The watchdog timer's `@Sendable` block captured a non-Sendable `self`. The class is *already* main-isolated in practice (only `AppController` touches it; the timer fires on the main run loop), so declaring it makes the class implicitly Sendable — stating the truth instead of asserting past it. Audio threads live a level down in the recorders, which own their own locks |
 | 2026-08-15 | Silent far-end track logs "no speech", not "diarization failed" | `OfflineDiarizationError.noSpeechDetected` is the normal result for a headphones meeting or a call nobody has joined. Zero turns is the honest answer; the old wording put an alarming line in the log for a healthy run |

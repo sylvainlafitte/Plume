@@ -179,3 +179,28 @@ struct MeetingDocumentTests {
         #expect(try MeetingDocument.read(.summary, from: final) == "generated")
     }
 }
+
+@Suite("Region heading de-duplication")
+struct RegionHeadingTests {
+    @Test("a model repeating the region's heading doesn't double it")
+    func stripsRepeatedHeading() throws {
+        // Templates tell the model to write "## Summary" as its first section,
+        // which collided with the region's own heading in the first real run.
+        let doc = MeetingDocument.render(
+            frontmatter: [], notes: "", summary: "*pending*", transcript: "x")
+        let updated = try MeetingDocument.replacing(
+            .summary, with: "## Summary\n\nIt went well.", in: doc)
+        #expect(updated.components(separatedBy: "## Summary").count - 1 == 1)
+        #expect(try MeetingDocument.read(.summary, from: updated) == "It went well.")
+    }
+
+    @Test("a heading that is part of a sentence is left alone")
+    func keepsGenuineHeadings() {
+        // "## Summary of costs" is a real section title, not a duplicate.
+        #expect(MeetingDocument.stripLeadingHeading(.summary, from: "## Summary of costs\n\nx")
+            == "## Summary of costs\n\nx")
+        // Later sections must survive untouched.
+        let body = "It went well.\n\n## Decisions\n\n- ship it"
+        #expect(MeetingDocument.stripLeadingHeading(.summary, from: body) == body)
+    }
+}
