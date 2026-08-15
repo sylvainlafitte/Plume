@@ -12,18 +12,15 @@ AGENTS.md **in the same commit**.
 
 ## Current state
 
-**Phase:** 1–5 built and verified on real recordings. 6 next (history window).
-**Next action:** Phase 6 — a window listing past meetings, with open-in-editor, reveal in
-Finder, regenerate with a different template, and rename/merge speakers. Deliberately *not* an
-in-app markdown editor (see PLAN.md "Scope"). Then Phase 7 (Ask), which is optional and the
-first thing to cut.
+**Phase:** 1–6 built. 7 (Ask) next, and optional.
+**Next action:** either Phase 7 (Ask — a third tab in `MeetingDetailView`), or close out the
+carried debt below. The R3 corpus is the higher-value item: it is the only thing standing
+between Phase 2 and "done", and it decides a default for the modal meeting.
 
 **What works end to end today:** menubar record → two-track capture → Parakeet transcription →
 offline diarization + echo filter → `meeting.md` with marked regions → audio deleted → floating
 panel for notes → templated summary via Ollama → title derived and folder renamed → speaker
-rename/merge. 95 tests.
-Phase 2's multi-speaker paths stay unverified until the corpus exists; that does **not** block
-later phases, but it does block calling Phase 2 done.
+rename/merge, plus a Meetings window for going back to any of it. 107 tests.
 
 > ### ⚠️ Carried debt: Phase 2 is unverified on real multi-speaker audio
 > Every diarization and echo path is covered by synthetic unit tests only; the one real
@@ -67,7 +64,7 @@ Spikes first; **A is go/no-go for the whole packaging decision.**
 - [x] Transcript segment shape incl. typed `Speaker` + word timings; types lifted to internal;
       deterministic tie-broken merge sort
 - [x] `doctor`: empirical system-audio probe + mic-level check (R14b), both reporting measured
-      dBFS; reachable via "Run diagnostics…"
+      dBFS. Reachable from Settings → Diagnostics (moved out of the menu bar in Phase 6)
 - [x] Cherry-pick **#18** (`OSAllocatedUnfairLock` around cross-thread recorder state +
       malformed SVG), **#2** (mic restart on `AVAudioEngineConfigurationChange`, silence-padded
       gap, rate-change-tolerant conversion), **#6** (15s size-poll watchdog, 45s stall
@@ -139,12 +136,26 @@ exactly one remote speaker.** The second is the one expected to fail.
 - [ ] Global hotkey (needs Carbon `RegisterEventHotKey`) — menubar "Show notes panel" for now
 
 ### Phase 6 — History window
-- [ ] List, open in external editor, reveal in Finder, regenerate, rename
-- [ ] Surface meetings stuck at `transcribed` (transcribed but never summarized — R10)
+- [x] `MeetingLibrary` scans the folder (frontmatter only, first 4 KB per file — the folder is
+      the database, there is no index to keep in sync)
+- [x] Window: list newest-first, open in editor, reveal in Finder, regenerate with a template,
+      rename/merge speakers
+- [x] Meetings stuck at `transcribed` are badged "no summary", counted in the sidebar footer and
+      in the menu bar (R10)
+- [x] **Shared `MeetingDetailView`** — the panel and the history window are one view now; they
+      had already drifted (only one rendered markdown, only one had notes) within a single phase
+- [x] `MarkdownText` renders the subset our templates emit; no dependency
+- [x] Summarize pinned *below* the tabs, so the default tab stops being load-bearing; panel
+      opens on Notes, history on Summary
+- [x] "Open meetings folder" moved from the menu bar to the sidebar footer; "Run diagnostics"
+      moved to Settings — the menu bar is down to five items
 
 ### Phase 7 — Ask (optional, first to cut)
-- [ ] Input row under Summary, hosted in both panel and history window
-- [ ] Chunked retrieval, save-answer-to-notes
+- [ ] **A third tab** in `MeetingDetailView` (Notes / Summary / Ask), so it appears in both the
+      panel and the history window for free. Reversed from the original "row under Summary" —
+      see PLAN.md F11
+- [ ] Whole transcript in context where it fits; Phase 4's chunking when it doesn't
+- [ ] Save-answer-to-notes
 
 ---
 
@@ -186,6 +197,8 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | 2026-08-14 | First-run flow must tolerate a late permission grant | A grant made *during* a capture arrives too late for that capture. The app needs to re-run or re-prompt rather than report failure |
 | 2026-08-14 | **Keep `sharingType = .none`, keep the hide hotkey, promise nothing** | Spike B showed `.none` genuinely excludes the panel from ScreenCaptureKit capture on macOS 26.5.1 — it is not the no-op the plan assumed. The hotkey stays as defence in depth for untested capture paths (Zoom/Teams/Meet/browser) and future regressions; UI copy still must not claim privacy, since Apple guarantees nothing |
 | 2026-08-14 | **Fork verified end to end.** Plume.app records both tracks from `/Applications`: system −2.5 dBFS peak with audio playing, `-inf` when silent (correctly silent, not noise); mic captures speech | Confirms Spike A's result holds in the real app, not just the probe. Structure is now `PlumeKit` (all logic) + a one-line `plume` executable, so tests reach internals via `@testable` without making anything public |
+| 2026-08-15 | **Ask will be a third tab, not a row under the summary** (reverses PLAN.md F11) | F11's objection to a tab was that it would live only in the post-call panel and so be in the wrong place for old meetings. Sharing `MeetingDetailView` between the panel and history dissolved that — a tab now appears in both. A tab is also the right shape: Ask is a mode you stay in, not a control you press once. And it leaves the bottom edge to the summarize bar rather than two controls competing |
+| 2026-08-15 | **Summarize pinned below the tabs; each surface picks its own opening tab** | Inside the Notes tab, the default tab decided whether the action was reachable at all. Pinned below, it is always available, so the default can just follow purpose: panel = writing (Notes), history = reading (Summary). Fixed per surface, never per meeting — a per-meeting default would make the tab jump as you scroll the list |
 | 2026-08-15 | **The pill is a separate `.borderless` window; expanded states stay `.titled`** | `.titled` is required to become key (so you can type while a call stays frontmost) but carries an invisible ~28pt titlebar. Below that height `contentLayoutRect` collapses to zero and SwiftUI lays content out below the visible window. Anything shorter than a titlebar needs its own window |
 | 2026-08-15 | Notes are free text with manual ⌘T timestamps; no auto-stamping, no wrap-up divider | Stamps went stale on edit, most notes aren't anchored to a moment, and the claimed summary-quality benefit was never verified. Cost: whole-file debounced saves lose ~1s of typing on a crash instead of nothing — accepted |
 | 2026-08-15 | Summarize is the primary CTA under **Notes**, not on the Summary tab | Notes are the input, the summary is the output; the action belongs where you finish working, and editing-then-regenerating no longer means switching tabs. Summary tab is a result view |

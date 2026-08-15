@@ -12,10 +12,16 @@ import SwiftUI
 @MainActor
 final class SettingsWindowController {
     private var window: NSWindow?
+    /// Set by AppController; the probes live there because they need the app's
+    /// own TCC identity.
+    var onRunDiagnostics: (() -> Void)?
 
     func show() {
         if window == nil {
-            let hosting = NSHostingController(rootView: SettingsView())
+            let hosting = NSHostingController(
+                rootView: SettingsView(onRunDiagnostics: { [weak self] in
+                    self?.onRunDiagnostics?()
+                }))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Plume Settings"
             window.styleMask = [.titled, .closable]
@@ -31,6 +37,7 @@ final class SettingsWindowController {
 }
 
 struct SettingsView: View {
+    let onRunDiagnostics: () -> Void
     @State private var settings = Config.current()
     @State private var saveError: String?
     @State private var installedModels: [String] = []
@@ -204,14 +211,20 @@ struct SettingsView: View {
             }
 
             Section {
+                LabeledContent("Diagnostics") {
+                    Button("Run checks…", action: onRunDiagnostics)
+                }
                 LabeledContent("Config file") {
                     Button("Reveal in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([Config.path])
                     }
                 }
             } footer: {
-                Text("Everything here is stored in \(Config.path.path) and can be edited by hand.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(
+                    "Checks record and play a short tone to verify capture actually works — "
+                    + "every other signal looks healthy even when it doesn't.\n\n"
+                    + "Settings are stored in \(Config.path.path) and can be edited by hand."
+                ).font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

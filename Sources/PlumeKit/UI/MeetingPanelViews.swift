@@ -41,36 +41,37 @@ struct MeetingPillView: View {
     let controller: MeetingPanelController
 
     var body: some View {
-        Button {
-            controller.expand()
-        } label: {
-            HStack(spacing: 4) {
-                if controller.isRecording {
-                    Circle().fill(.red).frame(width: 5, height: 5)
-                    Text(controller.elapsed)
-                        .font(.system(size: 10, design: .monospaced))
-                        .monospacedDigit()
-                        .fixedSize()
-                } else {
-                    Image(systemName: "text.append").font(.system(size: 9))
-                }
+        HStack(spacing: 4) {
+            if controller.isRecording {
+                Circle().fill(.red).frame(width: 5, height: 5)
+                Text(controller.elapsed)
+                    .font(.system(size: 10, design: .monospaced))
+                    .monospacedDigit()
+                    .fixedSize()
+            } else {
+                Image(systemName: "text.append").font(.system(size: 9))
             }
-            // Fill the window exactly. Without this the label's intrinsic height
-            // exceeded the frame and the material was clipped square at the
-            // bottom, so it read as a cut-off rectangle rather than a pill.
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        // Fill the window exactly. Without this the label's intrinsic height
+        // exceeded the frame and the material was clipped square at the bottom,
+        // so it read as a cut-off rectangle rather than a pill.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Capsule())
         .background(.regularMaterial, in: Capsule())
         .clipShape(Capsule())
-        .help("Click to expand Plume")
+        // Not a Button: a Button treats a drag as a click, so the pill expanded
+        // whenever you tried to move it. A drag gesture plus a tap gesture lets
+        // both work — drag to reposition, tap to expand.
+        .gesture(WindowDragGesture())
+        .onTapGesture { controller.expand() }
+        .help("Drag to move · click to expand")
     }
 }
 
 /// Live notes during the call — a full editing surface, not a commit field.
 struct RecordingStripView: View {
     @Bindable var controller: MeetingPanelController
+    @FocusState private var notesFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -84,8 +85,16 @@ struct RecordingStripView: View {
                     .font(.system(.body, design: .monospaced)).monospacedDigit().bold()
                 Button("Stop") { controller.requestStop() }
             }
+            // The header is the drag handle, since the window is no longer
+            // movable by its background (that broke text selection).
+            .contentShape(Rectangle())
+            .gesture(WindowDragGesture())
 
             TextEditor(text: $controller.notes)
+                .focused($notesFocused)
+                // The panel exists to be typed into, so the cursor starts there.
+                // Combined with acceptsFirstMouse, one click reaches the field.
+                .onAppear { notesFocused = true }
                 .font(.body)
                 .scrollContentBackground(.hidden)
                 .background(.quaternary.opacity(0.4))
@@ -110,14 +119,11 @@ struct RecordingStripView: View {
     }
 }
 
-/// After the call: notes, then the summary they produce.
+/// After the call: the meeting itself, plus the panel's own chrome.
+///
+/// The body is `MeetingDetailView`, shared with the history window — a meeting
+/// is the same thing whether it finished two minutes or two months ago.
 struct WrapUpView: View {
-    enum Tab: String, CaseIterable, Identifiable {
-        case notes = "Notes"
-        case summary = "Summary"
-        var id: String { rawValue }
-    }
-
     @Bindable var controller: MeetingPanelController
 
     var body: some View {
@@ -131,110 +137,13 @@ struct WrapUpView: View {
                 Button("Open") { controller.openInEditor() }
                     .help("Open meeting.md in your markdown editor")
             }
+            .contentShape(Rectangle())
+            .gesture(WindowDragGesture())
 
-            Picker("", selection: $controller.tab) {
-                ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            switch controller.tab {
-            case .notes: notesTab
-            case .summary: summaryTab
-            }
-
-            if let error = controller.error {
-                Text(error).font(.caption).foregroundStyle(.red).lineLimit(3)
-            }
+            MeetingDetailView(model: controller)
         }
         .padding(14)
         .background(.regularMaterial)
-    }
-
-    private var notesTab: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextEditor(text: $controller.notes)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .background(.quaternary.opacity(0.4))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-
-            Text("These are yours — nothing rewrites them.")
-                .font(.caption2).foregroundStyle(.secondary)
-
-            Divider()
-
-            // The primary action lives here, not on the Summary tab: notes are
-            // the input and the summary is the output, so the button belongs
-            // where you finish working — and editing then regenerating never
-            // requires bouncing between tabs.
-            HStack(spacing: 8) {
-                Picker("", selection: $controller.templateID) {
-                    ForEach(controller.templates, id: \.id) { Text($0.name).tag($0.id) }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .fixedSize()
-
-                if controller.isGenerating {
-                    ProgressView().controlSize(.small)
-                } else if !controller.transcriptReady {
-                    Text("transcribing…").font(.caption2).foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 8)
-
-                Button(controller.summary.isEmpty ? "Summarize" : "Regenerate") {
-                    controller.summarize()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!controller.transcriptReady || controller.isGenerating)
-            }
-        }
-    }
-
-    private var summaryTab: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Generating with nothing streamed yet: the model is loading, which
-            // on a cold start is many seconds. An empty pane reads as failure.
-            if controller.isGenerating && controller.summary.isEmpty {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(controller.progressNote)
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            ScrollView {
-                if !controller.summary.isEmpty {
-                    Text(controller.summary)
-                        .font(.callout)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                } else if !controller.isGenerating {
-                    Text("No summary yet — write your notes, then press Summarize.")
-                        .font(.callout).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .frame(maxHeight: .infinity)
-
-            if controller.isGenerating && !controller.summary.isEmpty {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text(controller.progressNote).font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-
-            if !controller.speakerRows.isEmpty {
-                Divider()
-                SpeakerListView(
-                    rows: controller.speakerRows,
-                    onRename: { controller.rename($0, to: $1) },
-                    onMerge: { controller.merge($0, into: $1) })
-            }
-        }
     }
 }
 

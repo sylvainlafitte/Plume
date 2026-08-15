@@ -16,7 +16,7 @@ import SwiftUI
 /// the individual labels.
 @MainActor
 @Observable
-final class MeetingPanelController {
+final class MeetingPanelController: MeetingDetailModel {
 
     private let panel = MeetingPanel()
     private let engine = SummaryEngine()
@@ -25,7 +25,7 @@ final class MeetingPanelController {
     private var startedAt: Date?
 
     // Observed by the views.
-    var tab: WrapUpView.Tab = .notes
+    var detailTab: MeetingTab = .notes
     var notes: String = ""
     var summary: String = ""
     var templateID: String = Config.defaultTemplate()
@@ -38,8 +38,18 @@ final class MeetingPanelController {
     var speakerRows: [SpeakerRow] = []
 
     var templates: [SummaryTemplate] { TemplateStore.all() }
+    // MeetingDetailModel conformance.
+    /// The panel is where you write a meeting record.
+    var initialTab: MeetingTab { .notes }
+    var canSummarize: Bool { transcriptReady }
+    var blockedReason: String? { transcriptReady ? nil : "transcribing…" }
+    var detailError: String? { error }
+    func notesEdited() { scheduleSave() }
     var title: String { session?.lastPathComponent ?? "Meeting" }
-    var hasSession: Bool { session != nil }
+    /// True while a meeting is still in flight — recording, or stopped but not
+    /// yet summarized. Once summarized it belongs to the Meetings window.
+    var hasSession: Bool { session != nil && !isFinished }
+    private var isFinished = false
 
     private var pollTimer: Timer?
     private var saveTimer: Timer?
@@ -49,6 +59,8 @@ final class MeetingPanelController {
     /// Set by AppController so the panel's Stop button drives the same path as
     /// the menu bar's.
     var onStopRequested: (() -> Void)?
+    /// Lets AppController refresh menubar state when a meeting becomes history.
+    var onSessionFinished: (() -> Void)?
 
     // MARK: - Lifecycle
 
@@ -62,9 +74,10 @@ final class MeetingPanelController {
         summary = ""
         error = nil
         isRecording = true
+        isFinished = false
         transcriptReady = false
         speakerRows = []
-        tab = .notes
+        detailTab = initialTab
         expandedMode = .recording
         show(.recording)
     }
@@ -81,7 +94,7 @@ final class MeetingPanelController {
         isRecording = false
         notes = NotesStore.read(from: session)
         transcriptReady = false
-        tab = .notes
+        detailTab = initialTab
         expandedMode = .wrapUp
         show(.wrapUp)
         // meeting.md appears when transcription finishes; poll for it rather
@@ -205,8 +218,13 @@ final class MeetingPanelController {
         guard let session, !isGenerating else { return }
         // Debounced edits must reach disk before the engine reads them.
         flushNotes()
-        tab = .summary
+        detailTab = .summary
         isGenerating = true
+        // Re-seat the root view: setting detailTab alone did not move the panel
+        // to the Summary tab in practice, and pressing Summarize and staying put
+        // reads as nothing having happened. Once per summarize, not per tick —
+        // this is not the path that made the pill flash.
+        show(expandedMode)
         error = nil
         summary = ""
         progressNote = "Loading the model…"
@@ -238,6 +256,8 @@ final class MeetingPanelController {
 
     private func finishSummarize(session: URL) {
         isGenerating = false
+        isFinished = true
+        onSessionFinished?()
         // Summarizing renames the folder once a title exists.
         if !FileManager.default.fileExists(atPath: session.path),
             let renamed = locateRenamed(from: session)

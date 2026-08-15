@@ -45,7 +45,7 @@ Rejected: forking OpenOats and deleting. Its unwanted features are not separable
 | Summarization trigger | **Explicit, after wrap-up notes** | Not automatic on stop — see F8 and R10 |
 | Templates | **Default runs on first generate; switch and regenerate** | Markdown files in a folder you can open — see F9 |
 | Settings | **Small window, config file is the source of truth** | Shell built in Phase 1; each phase adds its pane — see F10 |
-| Ask placement | **An input row under the Summary view, not a tab** | One component hosted in both the panel and the history window — see F11 |
+| Ask placement | **A third tab** (Notes / Summary / Ask) | *Reversed in Phase 6* once the panel and history began sharing one view — see F11 |
 
 **Environment [verified]:** M1 Pro, 16 GB, macOS 26.5.1, Xcode 26.4.1, Swift 6.3.1,
 Ollama 0.32.9 with `gemma4:latest` (9.6 GB). 16 GB is the binding constraint (R5).
@@ -162,6 +162,15 @@ browser `getDisplayMedia`) and for any future regression. Still make **no privac
 UI copy: it is best-effort, it says nothing about a phone pointed at the screen, and Apple
 offers no guarantee.
 
+**F8a — Summarize is pinned below the tabs, and each surface opens on a different tab.**
+*Added during Phase 6.* Putting the action inside the Notes tab made the default tab
+load-bearing: it decided whether the action was even reachable. Pinned below the tabs it is
+always available, so the default can simply follow what each surface is for — the panel opens
+on **Notes** (you are writing a record), the history window on **Summary** (you are reading one
+back). Fixed per surface, never per meeting: a default that varied with the selection would make
+the tab jump as you moved down the list. The Summary empty state carries the instruction, so a
+never-summarized meeting opened in history is not a dead end.
+
 **F8 — The panel is the whole post-meeting flow, and summarization is gated on a human.**
 Stopping the recording does not end the interaction. The panel stays up and expands, so final
 thoughts can be added while transcription runs, and only then is the summary generated:
@@ -258,7 +267,16 @@ Deliberately *not* exposed: diarizer threshold, step ratio, overlap and quality 
 measured values with reasons recorded in code, not preferences — a wrong setting there produces
 a subtly bad transcript that cannot be redone (R3).
 
-**F11 — Ask is a row, not a surface.** Your instinct is right that it belongs with the summary,
+**F11 — ~~Ask is a row, not a surface.~~ Reversed during Phase 6: Ask becomes a third tab.**
+The argument below was that a tab living only in the post-call panel would be in the wrong
+place for old meetings — sound at the time, when the panel and the history window were separate
+implementations. Extracting the shared `MeetingDetailView` dissolved it: a tab now appears in
+both surfaces automatically, which is exactly what this finding wanted and couldn't have. A tab
+is also the better shape — Ask is a mode you stay in, not a control you press once — and it
+leaves the bottom edge to the summarize bar instead of two controls competing for it.
+*Original reasoning follows.*
+
+ Your instinct is right that it belongs with the summary,
 but it shouldn't be a third tab: Ask is most useful on *old* meetings, and a tab that only exists
 in the post-call panel would be in the wrong place for that. Make it an input row pinned under
 the Summary view — one SwiftUI component, hosted in both the wrap-up panel and the history window.

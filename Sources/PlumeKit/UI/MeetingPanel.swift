@@ -1,6 +1,16 @@
 import AppKit
 import SwiftUI
 
+/// Delivers the *first* click to the control under the cursor.
+///
+/// A non-activating panel is not key until you click it, so by default the first
+/// click only raises the window and the second reaches the text field — which
+/// reads as the field being broken. Accepting first mouse makes one click do
+/// both, without the panel ever activating the app.
+private final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 /// The floating panel: a collapsed pill, a strip during a call, an expanded
 /// wrap-up pane after it.
 ///
@@ -20,6 +30,7 @@ import SwiftUI
 /// means. SwiftUI derives its safe area from that rect, so the pill's content
 /// was laid out below the visible window regardless of `ignoresSafeArea`. A
 /// borderless window has no titlebar to fight.
+
 @MainActor
 final class MeetingPanel {
 
@@ -80,11 +91,20 @@ final class MeetingPanel {
         }
 
         panel.orderFrontRegardless()
-        if mode == .wrapUp {
+        switch mode {
+        case .recording:
+            // Become key *without* activating the app. A non-activating panel can
+            // hold key while another app stays frontmost — that is what utility
+            // panels are for — and focus only follows the key window, so without
+            // this the notes field cannot take focus on appear.
+            panel.makeKey()
+        case .wrapUp:
             // The call is over; a comfortable typing surface now matters more
             // than staying out of the way.
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
+        case .pill:
+            break
         }
     }
 
@@ -131,7 +151,11 @@ final class MeetingPanel {
         panel.level = .floating
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.isMovableByWindowBackground = true
+        // Deliberately NOT movable by background: that makes any drag on content
+        // move the window, which silently breaks drag-to-select in the summary
+        // and swallows drags on the pill as clicks. The header and the pill
+        // carry an explicit WindowDragGesture instead.
+        panel.isMovableByWindowBackground = false
         panel.animationBehavior = .utilityWindow
         panel.hidesOnDeactivate = false
         // Follow the user across Spaces and survive over a full-screen call.
@@ -144,7 +168,7 @@ final class MeetingPanel {
     }
 
     private func hostingView(in panel: NSPanel) -> NSHostingView<AnyView> {
-        let hosting = NSHostingView(rootView: AnyView(EmptyView()))
+        let hosting = FirstMouseHostingView(rootView: AnyView(EmptyView()))
         hosting.frame = panel.contentView?.bounds ?? .zero
         hosting.autoresizingMask = [.width, .height]
         // Never let SwiftUI's intrinsic size drive the window: the first

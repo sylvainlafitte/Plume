@@ -13,12 +13,11 @@ final class MenuBarController {
     private let panelItem: NSMenuItem
 
     var onToggle: (() -> Void)?
-    var onOpenFolder: (() -> Void)?
     var onQuit: (() -> Void)?
     var onDismissFailure: (() -> Void)?
-    var onRunDiagnostics: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onTogglePanel: (() -> Void)?
+    var onOpenHistory: (() -> Void)?
 
     init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -51,12 +50,12 @@ final class MenuBarController {
         )
         menu.addItem(toggleItem)
 
-        let openFolder = NSMenuItem(
-            title: "Open meetings folder",
-            action: #selector(openFolderClicked),
-            keyEquivalent: "o"
+        let history = NSMenuItem(
+            title: "Meetings…",
+            action: #selector(openHistoryClicked),
+            keyEquivalent: "l"
         )
-        menu.addItem(openFolder)
+        menu.addItem(history)
 
         panelItem = NSMenuItem(
             title: "Show notes panel",
@@ -64,16 +63,6 @@ final class MenuBarController {
             keyEquivalent: "n"
         )
         menu.addItem(panelItem)
-
-        // Capture health can only be verified empirically, and only from inside
-        // the bundle — see AudioProbe. This is the only place that check is
-        // meaningful, so it needs to be reachable.
-        let diagnostics = NSMenuItem(
-            title: "Run diagnostics…",
-            action: #selector(runDiagnosticsClicked),
-            keyEquivalent: "d"
-        )
-        menu.addItem(diagnostics)
 
         let settings = NSMenuItem(
             title: "Settings…",
@@ -91,7 +80,12 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
-        for item in [toggleItem, panelItem, openFolder, diagnostics, settings, quit, failureItem] {
+        // "Open meetings folder" deliberately lives in the Meetings window's
+        // sidebar footer instead: it points at the folder *behind that list*,
+        // and the menu bar is for actions you need without opening anything.
+        for item in [
+            toggleItem, panelItem, history, settings, quit, failureItem,
+        ] {
             item.target = self
         }
 
@@ -112,11 +106,15 @@ final class MenuBarController {
         let isRecording = state.recording.isRecording
         stateLabel.title = isRecording
             ? "● recording · \(state.elapsedText ?? "0:00")"
-            : (state.pendingCount > 0 ? "idle · \(state.pendingCount) pending" : "idle")
+            : (state.pendingCount > 0
+                ? "idle · \(state.pendingCount) without a summary"
+                : "idle")
         toggleItem.title = isRecording ? "Stop recording" : "Start recording"
-        // Pointless before a meeting exists; enabled-but-inert is worse than absent.
+        // Only while a meeting is actually in flight. Once it is summarized it
+        // is history, and the Meetings window opens on exactly that — a second
+        // route to the same place is clutter.
         panelItem.isEnabled = state.hasPanelSession
-        panelItem.title = isRecording ? "Show notes panel" : "Show last meeting"
+        panelItem.title = "Show notes panel"
         statusItem.button?.contentTintColor = isRecording ? .systemRed : nil
 
         switch state.transcription {
@@ -163,10 +161,9 @@ final class MenuBarController {
     }
 
     @objc private func toggleClicked() { onToggle?() }
-    @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func quitClicked() { onQuit?() }
     @objc private func dismissFailureClicked() { onDismissFailure?() }
-    @objc private func runDiagnosticsClicked() { onRunDiagnostics?() }
     @objc private func openSettingsClicked() { onOpenSettings?() }
     @objc private func togglePanelClicked() { onTogglePanel?() }
+    @objc private func openHistoryClicked() { onOpenHistory?() }
 }

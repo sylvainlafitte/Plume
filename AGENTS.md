@@ -49,15 +49,17 @@ an earlier design. **Don't "fix" them without asking.**
 | No in-app markdown editor | Declined. The files are markdown in a folder and every Mac has a good editor. |
 | Speaker names aren't applied automatically | Invariant 3. |
 | Audio vanishes after transcription | Invariant 6, a requirement not a bug. |
+| The panel opens on Notes but Meetings opens on Summary | Deliberate, not an inconsistency. The panel is where you *write* a record; the window is where you *read* one. Fixed per surface, never per meeting — a default that varied with the selection would make the tab jump as you scroll the list. |
+| Summarize sits below the tabs, not inside Notes | So the default tab isn't load-bearing: the action stays reachable from either tab. It also leaves the bottom edge free for Phase 7's Ask tab. |
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
 
 Genuinely **not built yet** (different thing): `SMAppService` login item, a Carbon global
-hotkey, the Phase 6 history window, Phase 7 Ask.
+hotkey, Phase 7 Ask — which will be a third tab in `MeetingDetailView`, not a row.
 
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 95 tests
+swift build && swift test                      # library + 107 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
 ./.build/debug/plume doctor                    # checks — but see below
 ./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
@@ -106,6 +108,12 @@ window. Hence the 22pt pill is `.borderless`. Also: `hosting.sizingOptions = []`
 intrinsic size snaps the window back after every resize; and never mutate `styleMask` after
 init — typing silently stops working.
 
+**The wrap-up panel and the history window share `MeetingDetailView`.** They are the same
+object at different ages — notes, summary, speakers, regenerate — so changes belong in the
+shared view, not in one surface. They drifted within a single phase before it existed (only one
+rendered markdown, only one had notes). Each supplies its own chrome and its own `initialTab`:
+the panel opens on Notes because you are writing, history on Summary because you are reading.
+
 **Swift 6 strict concurrency is on.** `OfflineDiarizerManager` isn't `Sendable` and needs an
 owning actor. Don't reach for `@unchecked Sendable`: use a lock. The three that exist each carry
 a justification, and `MicRecorder`'s is **inherited debt** — Quill disabled checking on the whole
@@ -134,7 +142,7 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-15, after Phase 5.*
+*Last reviewed against the code: 2026-08-15, after Phase 6.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass
 does not happen, and a silently wrong constraint is worse than a missing one — the next agent

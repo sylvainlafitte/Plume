@@ -179,19 +179,31 @@ final class AppController {
     private let transcription = TranscriptionCoordinator()
     private let settingsWindow = SettingsWindowController()
     private let meetingPanel = MeetingPanelController()
+    private let historyWindow: HistoryWindowController
     private var session: RecordingSession?
     private var ticker: Timer?
 
     init(root: URL) {
         self.root = root
+        historyWindow = HistoryWindowController(root: root)
         menuBar.onToggle = { [weak self] in self?.toggle() }
-        menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.onDismissFailure = { [weak self] in self?.state.clearFailure() }
-        menuBar.onRunDiagnostics = { [weak self] in self?.runDiagnostics() }
-        menuBar.onOpenSettings = { [weak self] in self?.settingsWindow.show() }
+        menuBar.onOpenSettings = { [weak self] in
+            self?.settingsWindow.onRunDiagnostics = { [weak self] in self?.runDiagnostics() }
+            self?.settingsWindow.show()
+        }
+        menuBar.onOpenHistory = { [weak self] in
+            self?.historyWindow.show()
+            self?.refreshPending()
+        }
         menuBar.onTogglePanel = { [weak self] in self?.meetingPanel.focus() }
         meetingPanel.onStopRequested = { [weak self] in self?.stopSessionIfRecording() }
+        meetingPanel.onSessionFinished = { [weak self] in
+            guard let self else { return }
+            self.state.hasPanelSession = self.meetingPanel.hasSession
+            self.refreshPending()
+        }
 
         observeState()
 
@@ -209,6 +221,19 @@ final class AppController {
                 }
             }
             await transcription.resumePending(root: root)
+        }
+        refreshPending()
+    }
+
+    /// Count meetings transcribed but never summarized (R10). A human-gated
+    /// summary is one that may never happen — closing the laptop after a call is
+    /// normal — so it has to be visible somewhere rather than only inferable
+    /// from a folder listing.
+    func refreshPending() {
+        let root = self.root
+        Task.detached(priority: .utility) {
+            let count = MeetingLibrary.entries(in: root).filter(\.awaitingSummary).count
+            await MainActor.run { [weak self] in self?.state.pendingCount = count }
         }
     }
 
@@ -286,11 +311,15 @@ final class AppController {
 
         let dir = session.dir
         Task { [transcription] in await transcription.enqueue(dir) }
+        refreshPending()
     }
 
     /// Run the full checks including the ~2s empirical capture probes, then show
     /// the result. Off the main actor because the probes sleep while capturing.
-    private func runDiagnostics() {
+    ///
+    /// Lives in Settings rather than the menu bar: it is troubleshooting, not a
+    /// thing you reach for during a meeting.
+    func runDiagnostics() {
         let root = self.root
         Task.detached(priority: .userInitiated) {
             var checks = DoctorReport.run(recordingsRoot: root, probeAudio: true)
@@ -301,7 +330,7 @@ final class AppController {
         }
     }
 
-    private func presentDiagnostics(_ checks: [Check]) {
+    func presentDiagnostics(_ checks: [Check]) {
         let failures = checks.filter { if case .fail = $0.status { return true } else { return false } }
         let body = checks.map { check -> String in
             let mark: String
@@ -336,9 +365,5 @@ final class AppController {
         alert.runModal()
     }
 
-    private func openFolder() {
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        NSWorkspace.shared.open(root)
-    }
 
 }
