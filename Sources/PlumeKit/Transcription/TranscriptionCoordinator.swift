@@ -1,12 +1,15 @@
 import Foundation
 
 /// Post-recording pipeline: a serial queue of session folders to transcribe.
-/// mic.caf → "me", system.caf → "them"; each track's segments are shifted by
-/// its start offset, merged by timestamp, and written as transcript.json
-/// (canonical) plus transcript.md (readable). The filesystem is the queue —
-/// `resumePending()` rescans at launch, so a crash or quit mid-transcription
-/// just retries on next run. Failures append to the session's transcribe.log
-/// and never block later jobs.
+///
+/// mic.caf → "me", system.caf → diarized speakers; each track's segments are
+/// shifted by its start offset, merged onto a common clock, echo-filtered, and
+/// written into `meeting.md` with the summary left `*pending*`.
+///
+/// `.plume/state.json` is the queue: `resumePending()` rescans at launch, so a
+/// crash mid-transcription just retries. Failures are recorded as a blocker on
+/// the session and appended to `.plume/transcribe.log`; they never block later
+/// jobs.
 actor TranscriptionCoordinator {
     enum Status: Sendable {
         case idle
@@ -36,20 +39,25 @@ actor TranscriptionCoordinator {
         drainIfIdle()
     }
 
-    /// Scan the recordings root for sessions that finished (meta.json exists)
-    /// but were never transcribed. Folder names sort chronologically, so
-    /// oldest-first is a name sort.
+    /// Scan the recordings root for sessions with work left to do.
+    ///
+    /// Driven by `.plume/state.json` rather than the presence of an output file:
+    /// summarization is a second failable step after the audio is gone, so
+    /// "which stage did we reach" is the only sound question. Folder names sort
+    /// chronologically, so oldest-first is a name sort.
     func resumePending(root: URL) {
         guard Config.transcriptionEnabled() else { return }
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: root, includingPropertiesForKeys: nil
         ) else { return }
 
-        let fm = FileManager.default
         let pending = entries
-            .filter {
-                fm.fileExists(atPath: $0.appendingPathComponent("meta.json").path)
-                    && !fm.fileExists(atPath: $0.appendingPathComponent("transcript.json").path)
+            .filter { dir in
+                guard let state = SessionState.load(from: dir) else { return false }
+                // Only transcription is automatic. A session awaiting its
+                // summary is resting, not stuck — Phase 4/5 drive that on a
+                // human trigger.
+                return state.stage == .recorded && state.isReadyForWork
             }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         for dir in pending where !queue.contains(dir) {
@@ -78,14 +86,19 @@ actor TranscriptionCoordinator {
             publish(.transcribing(session: dir.lastPathComponent, queued: queue.count))
             do {
                 try await transcribe(dir)
+                try? SessionState.advance(dir, to: .transcribed)
                 notifyUser(title: "plume — transcript ready", body: dir.lastPathComponent)
                 runHook(for: dir)
             } catch {
                 log(dir, "transcription failed: \(error)")
+                // Recorded as a blocker so the failure is durable and visible,
+                // not just a line in a log nobody opens.
+                try? SessionState.block(
+                    dir, with: .failed(stage: .recorded, message: "\(error)"))
                 lastFailure = dir.lastPathComponent
                 notifyUser(
                     title: "plume — transcription failed",
-                    body: "\(dir.lastPathComponent) — see transcribe.log"
+                    body: "\(dir.lastPathComponent) — see .plume/transcribe.log"
                 )
             }
         }
@@ -106,7 +119,7 @@ actor TranscriptionCoordinator {
 
         var merged: [Transcript.Segment] = []
         for track in meta.tracks {
-            let audio = dir.appendingPathComponent(track.file)
+            let audio = SessionState.directory(in: dir).appendingPathComponent(track.file)
             guard FileManager.default.fileExists(atPath: audio.path) else {
                 log(dir, "skipping missing track \(track.file)")
                 continue
@@ -130,7 +143,11 @@ actor TranscriptionCoordinator {
                     let diarizer = try await preparedDiarizer()
                     let turns = try await diarizer.diarize(audio)
                     let speakers = Set(turns.map(\.speakerId)).count
-                    log(dir, "diarized \(track.file): \(speakers) speaker(s), \(turns.count) turns")
+                    if turns.isEmpty {
+                        log(dir, "no speech on \(track.file) — nothing to diarize")
+                    } else {
+                        log(dir, "diarized \(track.file): \(speakers) speaker(s), \(turns.count) turns")
+                    }
                     attributed = SpeakerAttribution.attribute(
                         segments: segments, turns: turns, fallback: track.speaker)
                 } catch {
@@ -182,14 +199,82 @@ actor TranscriptionCoordinator {
             return a.text < b.text
         }
 
-        let transcript = Transcript(
-            engine: engine.name,
-            model: engine.model,
-            created_at: ISO8601DateFormatter().string(from: Date()),
-            segments: merged
+        // Write meeting.md now, with the summary still pending. Deliberately
+        // *before* summarization exists: a failed or never-requested summary
+        // must never leave a completed transcript invisible on disk.
+        let speakers = orderedSpeakers(in: merged)
+        var frontmatter: [(String, String)] = [
+            ("plume", "1"),
+            ("title", dir.lastPathComponent),
+            ("started", Self.localTimestamp(meta.startedAt ?? Date())),
+            ("duration_s", "\(meta.durationSeconds ?? 0)"),
+            ("engine", "\(engine.name) (\(engine.model))"),
+        ]
+        // Flat keys, one per *remote* speaker — this map is what Phase 4/5 fill
+        // in with real names (speaker_S1: Marie). "me" and "them" are already
+        // meaningful labels and need no mapping, so listing them is noise.
+        for label in speakers where label.hasPrefix("S") && label.dropFirst().allSatisfy(\.isNumber) {
+            frontmatter.append(("speaker_\(label)", label))
+        }
+
+        let document = MeetingDocument.render(
+            frontmatter: frontmatter,
+            notes: readScratchNotes(in: dir),
+            summary: "*pending*",
+            transcript: Transcript.renderSegments(merged)
         )
-        try transcript.write(to: dir)
-        log(dir, "done — \(merged.count) segments")
+        let meetingURL = dir.appendingPathComponent("meeting.md")
+        try MeetingDocument.write(document, to: meetingURL)
+        log(dir, "wrote meeting.md — \(merged.count) segments, \(speakers.count) speaker(s)")
+
+        // Only now is the audio expendable. Deleting earlier would risk losing
+        // the meeting entirely if the write failed; deleting later never happens.
+        deleteAudio(in: dir, tracks: meta.tracks.map(\.file))
+    }
+
+    /// ISO8601 with the local offset. UTC would render a 10:14 meeting as
+    /// 00:14, which reads as a different day to the person who was in it.
+    ///
+    /// Built per call rather than cached: `ISO8601DateFormatter` is a mutable
+    /// class and not `Sendable`, and this runs once per meeting.
+    private static func localTimestamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone.current
+        return formatter.string(from: date)
+    }
+
+    /// Speaker labels in first-appearance order, for the frontmatter.
+    private func orderedSpeakers(in segments: [Transcript.Segment]) -> [String] {
+        var seen: [String] = []
+        for segment in segments where !seen.contains(segment.speaker) {
+            seen.append(segment.speaker)
+        }
+        return seen
+    }
+
+    /// Notes typed during the call (Phase 5 writes these); empty for now.
+    private func readScratchNotes(in dir: URL) -> String {
+        let url = SessionState.directory(in: dir).appendingPathComponent("notes.md")
+        return (try? String(contentsOf: url, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    /// Audio is deleted as soon as the transcript is durably written — a decided
+    /// requirement, not an optimisation. There is no re-run: tune against the
+    /// held-aside corpus, never against a real meeting (docs/PLAN.md R3).
+    private func deleteAudio(in dir: URL, tracks: [String]) {
+        let work = SessionState.directory(in: dir)
+        for track in tracks {
+            let url = work.appendingPathComponent(track)
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                log(dir, "could not delete \(track): \(error)")
+            }
+        }
+        log(dir, "audio deleted")
     }
 
     private func preparedEngine() async throws -> TranscriptionEngine {
@@ -235,7 +320,7 @@ actor TranscriptionCoordinator {
 
     private func log(_ dir: URL, _ message: String) {
         let line = "\(ISO8601DateFormatter().string(from: Date())) \(message)\n"
-        let url = dir.appendingPathComponent("transcribe.log")
+        let url = SessionState.directory(in: dir).appendingPathComponent("transcribe.log")
         if let handle = FileHandle(forWritingAtPath: url.path) {
             handle.seekToEndOfFile()
             handle.write(Data(line.utf8))
@@ -263,6 +348,8 @@ struct SessionMeta {
     }
 
     let tracks: [Track]
+    let startedAt: Date?
+    let durationSeconds: Int?
 
     enum MetaError: Error, CustomStringConvertible {
         case unreadable(URL)
@@ -275,7 +362,7 @@ struct SessionMeta {
     }
 
     static func read(from dir: URL) throws -> SessionMeta {
-        let url = dir.appendingPathComponent("meta.json")
+        let url = SessionState.directory(in: dir).appendingPathComponent("meta.json")
         guard
             let data = try? Data(contentsOf: url),
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -293,13 +380,19 @@ struct SessionMeta {
             tracks.append(
                 Track(file: system, speaker: .them, offsetMs: offsets["system"] ?? 0))
         }
-        return SessionMeta(tracks: tracks)
+        let started = (json["started"] as? String).flatMap {
+            ISO8601DateFormatter().date(from: $0)
+        }
+        return SessionMeta(
+            tracks: tracks,
+            startedAt: started,
+            durationSeconds: json["duration_seconds"] as? Int)
     }
 }
 
-/// Canonical transcript. Property names are the JSON schema — this struct
-/// exists to be serialized.
-struct Transcript: Codable {
+/// Transcript segments. `meeting.md` is now the only output — transcript.json
+/// and transcript.md are gone, since one file per meeting was the point.
+struct Transcript {
     struct Segment: Codable, Equatable {
         /// Speaker label as written to disk: "me", "them", or "S1"/"S2"…
         let speaker: String
@@ -308,30 +401,13 @@ struct Transcript: Codable {
         let text: String
     }
 
-    let engine: String
-    let model: String
-    let created_at: String
-    let segments: [Segment]
-
-    /// Write transcript.json and render transcript.md. Both writes are atomic
-    /// (temp file + rename), so a partially written transcript never exists on
-    /// disk — resumePending treats presence of transcript.json as "done".
-    func write(to dir: URL) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(self)
-            .write(to: dir.appendingPathComponent("transcript.json"), options: .atomic)
-        try Data(rendered(title: dir.lastPathComponent).utf8)
-            .write(to: dir.appendingPathComponent("transcript.md"), options: .atomic)
-    }
-
-    private func rendered(title: String) -> String {
-        var lines = ["# \(title)", "", "engine: \(engine) (\(model))", ""]
-        for seg in segments {
-            lines.append("**[\(Self.clock(seg.start_ms))] \(seg.speaker):** \(seg.text)")
-            lines.append("")
-        }
-        return lines.joined(separator: "\n")
+    /// Segment lines only — the body of meeting.md's transcript region. The
+    /// surrounding document (frontmatter, headings, markers) belongs to
+    /// MeetingDocument, so this stays a pure list of lines.
+    static func renderSegments(_ segments: [Segment]) -> String {
+        segments.map {
+            "**[\(clock($0.start_ms))] \($0.speaker):** \($0.text)"
+        }.joined(separator: "\n\n")
     }
 
     private static func clock(_ ms: Int) -> String {

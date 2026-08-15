@@ -12,9 +12,10 @@ AGENTS.md **in the same commit**.
 
 ## Current state
 
-**Phase:** 2 code-complete; 3 starting
-**Next action:** continue building. Phase 2's multi-speaker paths stay unverified until the
-corpus exists — that does **not** block later phases, but it does block calling Phase 2 done.
+**Phase:** 3 complete; 4 next (summaries)
+**Next action:** Phase 4 — `SummaryEngine` over Ollama, templates, title/speaker proposals.
+Phase 2's multi-speaker paths stay unverified until the corpus exists; that does **not** block
+later phases, but it does block calling Phase 2 done.
 
 > ### ⚠️ Carried debt: Phase 2 is unverified on real multi-speaker audio
 > Every diarization and echo path is covered by synthetic unit tests only; the one real
@@ -88,10 +89,14 @@ transcript with *verified non-zero* system audio.
 exactly one remote speaker.** The second is the one expected to fail.
 
 ### Phase 3 — Markdown + stage machine
-- [ ] `meeting.md` written at `diarized` with summary `*pending*`
-- [ ] Marked regions, flat frontmatter, `replaceItemAt`
-- [ ] `.plume/state.json` stage machine incl. `failed` / `cancelled` / `needs_permission`
-- [ ] Audio deletion after transcript region written
+- [x] `meeting.md` written as soon as the transcript exists, summary `*pending*`
+- [x] Marked regions, flat frontmatter, `replaceItemAt` (xattr-preservation tested)
+- [x] `.plume/state.json` stage machine with `failed` / `needsPermission` / `cancelled`
+- [x] Audio deleted once the transcript is durably written
+- [x] Layout: session folder shows only `meeting.md`; audio/meta/log/state live in `.plume/`
+- [x] Folder naming `yyyy-MM-dd-HHmm` (Phase 4 appends the title slug)
+- [x] Replaced the `transcript.json`-presence sentinel with the stage machine
+- [x] Signed with a real Apple Development identity so TCC grants survive rebuilds
 
 ### Phase 4 — Summaries
 - [ ] `SummaryEngine` on `/api/chat` (`num_ctx: 32768` — Spike C, `truncate:false`,
@@ -156,6 +161,9 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | 2026-08-14 | First-run flow must tolerate a late permission grant | A grant made *during* a capture arrives too late for that capture. The app needs to re-run or re-prompt rather than report failure |
 | 2026-08-14 | **Keep `sharingType = .none`, keep the hide hotkey, promise nothing** | Spike B showed `.none` genuinely excludes the panel from ScreenCaptureKit capture on macOS 26.5.1 — it is not the no-op the plan assumed. The hotkey stays as defence in depth for untested capture paths (Zoom/Teams/Meet/browser) and future regressions; UI copy still must not claim privacy, since Apple guarantees nothing |
 | 2026-08-14 | **Fork verified end to end.** Plume.app records both tracks from `/Applications`: system −2.5 dBFS peak with audio playing, `-inf` when silent (correctly silent, not noise); mic captures speech | Confirms Spike A's result holds in the real app, not just the probe. Structure is now `PlumeKit` (all logic) + a one-line `plume` executable, so tests reach internals via `@testable` without making anything public |
+| 2026-08-15 | **Ad-hoc signing was why permissions reset on every rebuild.** Switched `build-app.sh` to the existing Apple Development identity | An ad-hoc signature's Designated Requirement is the cdhash, which changes with every build, so macOS saw each rebuild as a new app. A certificate-backed DR keys on cert + bundle ID and survives. `PLUME_SIGN_ID=-` forces ad-hoc if needed |
+| 2026-08-15 | `RecordingSession` is now `@MainActor` rather than carrying an unchecked capture | The watchdog timer's `@Sendable` block captured a non-Sendable `self`. The class is *already* main-isolated in practice (only `AppController` touches it; the timer fires on the main run loop), so declaring it makes the class implicitly Sendable — stating the truth instead of asserting past it. Audio threads live a level down in the recorders, which own their own locks |
+| 2026-08-15 | Silent far-end track logs "no speech", not "diarization failed" | `OfflineDiarizationError.noSpeechDetected` is the normal result for a headphones meeting or a call nobody has joined. Zero turns is the honest answer; the old wording put an alarming line in the log for a healthy run |
 | 2026-08-14 | Documented all three `@unchecked Sendable` uses; `MicRecorder`'s is inherited debt, not justified | Writing "there is exactly one" in AGENTS.md and then grepping found three. quill#18 locked the racing *fields* but left the class-level conformance, so the debt is partially discharged, not removed — and the file claimed otherwise. Removing it is open work |
 | 2026-08-14 | **`expected_participants`, default 2, caps far-end speakers** instead of retuning the threshold | 1:1s are the modal meeting, and threshold 0.7 is tuned on 4-speaker AMI material with a deliberate anti-merge bias — its characteristic error on a two-person call is splitting one voice. Lowering the threshold would trade that against under-splitting group calls, which is the *worse* error (conflating two real people is unrecoverable; over-splitting is one merge click). The speaker cap avoids the trade: N participants ⇒ N−1 far-end speakers, a number known in advance. **Open:** whether 0.7 actually over-splits a real 1:1 — if not, uncapped becomes the better default |
 | 2026-08-14 | **Phase 2 verified on the echoed recording: 7 → 4 segments, all 3 mic duplicates dropped, no genuine speech lost.** Diarizer found 1 speaker and correctly kept `them` rather than inventing `S1` | End-to-end proof of the diarize → attribute → echo-filter chain. Note the multi-speaker path is still only covered by unit tests |

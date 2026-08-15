@@ -1,9 +1,20 @@
 import Foundation
 
-/// One meeting recording: a timestamped folder holding two independent tracks
-/// (mic = you, system = them) plus a meta.json written on clean stop. Tracks
-/// are separate on purpose — whisper does better on clean single-source audio,
-/// and two tracks give free two-party diarization.
+/// One meeting recording.
+///
+/// Layout: a timestamped folder whose only visible content is eventually
+/// `meeting.md`. Everything transient — the two audio tracks, meta.json, the
+/// log, pipeline state — lives in `.plume/` and is removed once the transcript
+/// is safely written. The user opens a folder and sees a document, not scaffolding.
+///
+/// Tracks are separate on purpose: ASR does better on clean single-source audio,
+/// and two tracks give me/them separation for free before any model runs.
+/// Main-actor isolated: created, started and stopped only by `AppController`,
+/// and the liveness watchdog fires on the main run loop. Declaring that makes
+/// the class implicitly `Sendable` and removes an unchecked capture, rather than
+/// asserting safety at the call site. The audio threads live one level down, in
+/// MicRecorder/SystemAudioRecorder, which own their own synchronisation.
+@MainActor
 final class RecordingSession {
     let dir: URL
     let startedAt = Date()
@@ -30,13 +41,15 @@ final class RecordingSession {
 
     private static let folderFormat: DateFormatter = {
         let f = DateFormatter()
-        f.dateFormat = "yyyy.MM.dd-HHmm"
+        // Hyphenated and sortable. Phase 4 appends a title slug to this
+        // (2026-08-14-2215-pricing-review) once one has been derived.
+        f.dateFormat = "yyyy-MM-dd-HHmm"
         f.locale = Locale(identifier: "en_US_POSIX")
         return f
     }()
 
-    /// Create the session folder under `root` (yyyy.MM.dd-HHmm, suffixed on
-    /// collision) without starting capture yet.
+    /// Create the session folder under `root` (yyyy-MM-dd-HHmm, suffixed on
+    /// collision) plus its `.plume/` working directory, without starting capture.
     init(root: URL) throws {
         let base = Self.folderFormat.string(from: startedAt)
         var candidate = root.appendingPathComponent(base, isDirectory: true)
@@ -47,22 +60,29 @@ final class RecordingSession {
         }
         try FileManager.default.createDirectory(at: candidate, withIntermediateDirectories: true)
         dir = candidate
+        try FileManager.default.createDirectory(
+            at: SessionState.directory(in: candidate), withIntermediateDirectories: true)
     }
+
+    /// Transient working directory: audio, meta, log, pipeline state.
+    var workDir: URL { SessionState.directory(in: dir) }
 
     /// Start both tracks. If the mic fails after the system tap started, the
     /// tap is torn down so we never run half a session silently.
     func start() throws {
-        try system.start(writingTo: dir.appendingPathComponent("system.caf"))
+        try system.start(writingTo: workDir.appendingPathComponent("system.caf"))
         do {
-            try mic.start(writingTo: dir.appendingPathComponent("mic.caf"))
+            try mic.start(writingTo: workDir.appendingPathComponent("mic.caf"))
         } catch {
             system.stop()
             throw error
         }
+        // The timer block is `@Sendable`; `assumeIsolated` documents that it
+        // fires on the main run loop, where this class already lives.
         watchdog = Timer.scheduledTimer(
             withTimeInterval: Self.watchdogInterval, repeats: true
         ) { [weak self] _ in
-            self?.checkTrackLiveness()
+            MainActor.assumeIsolated { self?.checkTrackLiveness() }
         }
     }
 
@@ -96,7 +116,10 @@ final class RecordingSession {
             withJSONObject: meta,
             options: [.prettyPrinted, .sortedKeys]
         ) {
-            try? data.write(to: dir.appendingPathComponent("meta.json"))
+            try? data.write(to: workDir.appendingPathComponent("meta.json"))
+            // Recording is durably complete; the pipeline can resume from here
+            // even if we crash before transcription starts.
+            try? SessionState(stage: .recorded).save(to: dir)
         }
     }
 
@@ -109,7 +132,7 @@ final class RecordingSession {
     private func checkTrackLiveness() {
         let now = Date()
         for name in ["mic", "system"] {
-            let path = dir.appendingPathComponent("\(name).caf").path
+            let path = workDir.appendingPathComponent("\(name).caf").path
             guard let size = (try? FileManager.default
                 .attributesOfItem(atPath: path))?[.size] as? Int64 else { continue }
 

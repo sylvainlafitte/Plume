@@ -33,10 +33,26 @@ cp "$BIN" "$APP/Contents/MacOS/plume"
 # detritus". Learned the hard way in Spike A.
 xattr -cr "$APP"
 
-# Ad-hoc signature. Note the cdhash changes on every rebuild, so macOS may re-prompt
-# for permissions after each build. A stable signing identity fixes that later.
-echo "▸ signing (ad-hoc)"
-codesign --force --sign - --timestamp=none "$APP"
+# Prefer a real signing identity over ad-hoc.
+#
+# An ad-hoc signature's Designated Requirement is the cdhash, which changes with every
+# build — so macOS treats each rebuild as a different app and re-prompts for microphone
+# and system-audio permission. A certificate-backed signature keys the DR on the
+# certificate plus bundle ID instead, and TCC grants survive rebuilds.
+#
+# Override with PLUME_SIGN_ID, or set it to "-" to force ad-hoc.
+if [ -z "${PLUME_SIGN_ID:-}" ]; then
+    PLUME_SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
+        | grep -m1 'Apple Development' \
+        | sed -E 's/.*\) ([A-F0-9]{40}) .*/\1/')"
+fi
+if [ -n "${PLUME_SIGN_ID:-}" ] && [ "$PLUME_SIGN_ID" != "-" ]; then
+    echo "▸ signing (identity ${PLUME_SIGN_ID:0:12}…)"
+else
+    PLUME_SIGN_ID="-"
+    echo "▸ signing (ad-hoc — expect a permission re-prompt after each build)"
+fi
+codesign --force --sign "$PLUME_SIGN_ID" --timestamp=none "$APP"
 codesign --verify --verbose=2 "$APP" 2>&1 | sed 's/^/    /'
 
 echo "▸ built $APP"

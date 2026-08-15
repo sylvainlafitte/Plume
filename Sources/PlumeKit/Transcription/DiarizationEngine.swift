@@ -105,7 +105,17 @@ actor OfflineDiarizer: Diarizing {
 
     func diarize(_ audio: URL) async throws -> [DiarizedTurn] {
         guard let box else { throw DiarizationError.notPrepared }
-        let result = try await box.manager.process(audio)
+
+        let result: DiarizationResult
+        do {
+            result = try await box.manager.process(audio)
+        } catch OfflineDiarizationError.noSpeechDetected {
+            // Not a failure. A track with no speech is the normal case for a
+            // meeting where nobody joined yet, or one recorded on headphones
+            // with nothing playing. Zero turns is the honest answer; reporting
+            // it as an error would put a scary line in the log for a healthy run.
+            return []
+        }
         return result.segments.map {
             DiarizedTurn(
                 speakerId: $0.speakerId,
