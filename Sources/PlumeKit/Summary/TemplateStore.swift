@@ -23,13 +23,19 @@ enum TemplateStore {
     }
 
     /// Shipped on first run and never overwritten afterwards, so edits survive
-    /// updates. Three is enough; six was OpenOats' number and most went unused.
+    /// updates. Four; six was OpenOats' number and most went unused.
+    ///
+    /// **A change here does not reach an existing install.** `seedIfNeeded`
+    /// writes only files that are missing, which is what makes hand-edited
+    /// prompts safe — so an edited seed only appears on a machine that has
+    /// never had that file. A *new* seed does appear everywhere, because its
+    /// file is missing by definition.
     static let seeds: [SummaryTemplate] = [
         SummaryTemplate(
             id: "general",
             name: "General",
             prompt: """
-                You are summarizing a meeting transcript for the person who attended it.
+                You are summarising a meeting transcript for the person who attended it.
 
                 Write in Markdown, using only these sections, and omit any that have no content:
 
@@ -50,16 +56,17 @@ enum TemplateStore {
                 Rules:
                 - Only use what is in the transcript and notes. Never invent a decision,
                   a name, a number or a date.
-                - If the transcript is too garbled or too short to summarize, say so plainly
+                - If the transcript is too garbled or too short to summarise, say so plainly
                   instead of producing a plausible-sounding summary.
                 - Prefer the attendee's own notes where they conflict with the transcript;
                   they were there and the transcript may have misheard.
+                - Write in British English.
                 """),
         SummaryTemplate(
             id: "one-to-one",
             name: "1:1",
             prompt: """
-                You are summarizing a one-to-one conversation for one of the two people in it.
+                You are summarising a one-to-one conversation for one of the two people in it.
 
                 Write in Markdown, omitting any section with no content:
 
@@ -79,13 +86,14 @@ enum TemplateStore {
                 Rules:
                 - Only use what is in the transcript and notes. Never invent anything.
                 - Keep it short. A 1:1 summary longer than the notes has failed.
-                - Say plainly if the transcript is too thin to summarize.
+                - Say plainly if the transcript is too thin to summarise.
+                - Write in British English.
                 """),
         SummaryTemplate(
             id: "standup",
             name: "Stand-up",
             prompt: """
-                You are summarizing a status meeting.
+                You are summarising a status meeting.
 
                 Write in Markdown:
 
@@ -102,6 +110,75 @@ enum TemplateStore {
                 - Only use what is in the transcript and notes. Never invent anything.
                 - Omit any section with no content rather than writing "none".
                 - Be terse. This is a status summary, not prose.
+                - Write in British English.
+                """),
+        SummaryTemplate(
+            id: "hiring",
+            name: "Hiring",
+            prompt: """
+                You are summarising a job interview for the interviewer who conducted it.
+
+                This summary is about a real person and may feed a decision that affects
+                them, so being accurate matters more than being complete or readable.
+
+                Write in Markdown, omitting any section with no content:
+
+                ## Summary
+                Two to four sentences: the role, and what ground the interview covered.
+
+                ## Your call
+                If the interviewer's notes contain a verdict, a rating, a score or a
+                leaning, reproduce it here in their own words, first, and unchanged. It is
+                the most important line in the document and the one they will look for
+                first months later. Omit this section entirely if they didn't record one —
+                never fill it in on their behalf.
+
+                ## What they claimed
+                Their account of their experience, attributed to them rather than stated
+                as fact — "said they led…", not "led…".
+
+                ## Evidence given
+                Specific examples they offered, with what *they* personally did as
+                distinct from what their team or company did. Note where an example was
+                asked for and not given.
+
+                ## Strengths
+                Only those an example in the transcript actually supports. Cite it.
+
+                ## Concerns
+                Same standard: the observation, and what prompted it. No inferences about
+                the person beyond what was said.
+
+                ## Questions they asked
+                What the candidate wanted to know — often the most revealing part, and the
+                easiest to forget.
+
+                ## Still to establish
+                What a next conversation would need to cover, as questions.
+
+                ## Practicalities
+                Notice period, availability, location, compensation — only if stated.
+
+                Rules:
+                - Only use what is in the transcript and notes. Never invent an example,
+                  a name, a number, a date or a qualification.
+                - Keep "claimed" and "demonstrated" apart everywhere. An interview is
+                  mostly the former, and a summary that blurs them misleads a decision.
+                - **Never infer or mention age, gender, ethnicity, nationality, accent,
+                  religion, health, disability, family or any other protected or personal
+                  characteristic**, even if it is audible in the recording or mentioned in
+                  passing. It is irrelevant to the role and unlawful to weigh.
+                - **Reach no verdict of your own** — no score, rating, ranking or
+                  hire/no-hire recommendation that the interviewer did not write. Your job
+                  is to hand the evidence back accurately, not to anchor them.
+                  This is *not* a rule against recording *their* judgement: if their notes
+                  contain a rating or a recommendation, it goes in "Your call" verbatim,
+                  never softened, sharpened, hedged or argued with. Suppressing their own
+                  conclusion would be the worse failure.
+                - Prefer the interviewer's own notes where they conflict with the
+                  transcript; they were there and the transcript may have misheard.
+                - Say plainly if the transcript is too thin to summarise.
+                - Write in British English.
                 """),
     ]
 

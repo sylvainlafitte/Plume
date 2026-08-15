@@ -50,7 +50,7 @@ an earlier design. **Don't "fix" them without asking.**
 | No transcript view in the app | Deliberate. The transcript is summarizer input and text in `meeting.md`. Speaker rows show sample lines so you can identify a voice without one. |
 | Notes have no automatic timestamps | Reversed in Phase 5: stamps went stale whenever a line was edited, and most notes aren't anchored to a moment. ⌘T inserts one on purpose. |
 | Summarizing is manual | The wrap-up gate is the point — you add final thoughts *then* summarize. A meeting resting at `transcribed` forever is normal. |
-| Only three templates, no template editor | Templates are markdown files in a folder; editing one means opening it. A JSON store and an editor UI were both declined. |
+| Only four templates, no template editor | Templates are markdown files in a folder; editing one means opening it. A JSON store and an editor UI were both declined. |
 | No in-app markdown editor | Declined. The files are markdown in a folder and every Mac has a good editor. |
 | Speaker names aren't applied automatically | Invariant 3. |
 | Audio vanishes after transcription | Invariant 6, a requirement not a bug. |
@@ -59,6 +59,7 @@ an earlier design. **Don't "fix" them without asking.**
 | A recording starts as the pill, and both expanded modes share one resizable frame | Reversed together. Two fixed sizes (340×300 recording, 430×580 wrap-up) assumed a live call wanted a smaller footprint — moot once the panel is only on screen when you deliberately open it. The panel's **top-right corner is the anchor** everywhere: the pill collapses to it and expands from it, so a resize anchored anywhere else drifts the pill by the width difference. |
 | Two echo settings, not one | Different points in the pipeline and not interchangeable: `transcript_echo_filter` removes duplicates from the finished transcript (safe, default on), `mic_voice_processing` stops the echo reaching the recording but makes macOS duck all other audio for the whole meeting. Presented together, weaker one first. |
 | `transcription.enabled` has no toggle in Settings | Off, a recording rests at `recorded` forever — no transcript, no summary, no `meeting.md`. A switch that silently turns the whole app off doesn't belong beside ordinary preferences. The config key still works for the CLI. |
+| No Dock icon, and windows aren't in ⌘-Tab | Accessory apps are absent from ⌘-Tab **by rule**, not by window configuration — the only lever is `NSApp.setActivationPolicy(.regular)`, which brings a Dock icon and a real menu bar. Declined 2026-08-15. Windows are reached from the menu bar. |
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
 
 Genuinely **not built yet** (different thing): `SMAppService` login item, a Carbon global
@@ -67,7 +68,7 @@ hotkey, Phase 7 Ask — which will be a third tab in `MeetingDetailView`, not a 
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 107 tests
+swift build && swift test                      # library + 114 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
 ./.build/debug/plume doctor                    # checks — but see below
 ./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
@@ -132,7 +133,10 @@ Three more rules the panel depends on, none of them enforced by anything:
   anything in a window that isn't key.
 
 Also `hosting.sizingOptions = []`, or SwiftUI's intrinsic size snaps the window back after every
-resize; and never mutate `styleMask` after init — typing silently stops working.
+resize; and never mutate `styleMask` after init — typing silently stops working. **Window
+metrics generally lose to the hosting view:** `minSize`/`contentMinSize` are set and still
+ignored once it is installed, so the floor is enforced in `windowWillResize` — the one point
+AppKit asks before committing a drag. Level and `collectionBehavior` are safe to mutate.
 
 **A menubar-only app still needs a main menu, or ⌘C beeps.** `LSUIElement` means no menu bar
 is drawn, but macOS routes standard editing commands through the **main menu's key
@@ -175,7 +179,7 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-15, after Phase 6 and its feedback round.*
+*Last reviewed against the code: 2026-08-15, after Phase 6 and its second feedback round.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass
 does not happen, and a silently wrong constraint is worse than a missing one — the next agent

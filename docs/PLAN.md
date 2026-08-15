@@ -115,7 +115,10 @@ now that the value is measured rather than guessed.
 
 **F4 — Floating panel configuration [verified against source].**
 *Superseded in part during Phase 5: the pill is now a **separate borderless window**, because a
-`.titled` window's `contentLayoutRect` collapses to zero height below ~28pt. See AGENTS.md.*
+`.titled` window's `contentLayoutRect` collapses to zero height below ~28pt. And again in
+Phase 6: this configuration describes the **recording** window only — wrap-up is an ordinary
+`NSWindow` at normal level, with none of the floating/non-activating settings below. See
+AGENTS.md §4.*
 
 ```swift
 styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView]
@@ -211,6 +214,10 @@ Three consequences worth stating plainly:
 - **Post-call, the panel should activate normally.** `.nonactivatingPanel` prevents *click-to-activate*,
   which is what we want mid-call; after stop we can call `makeKeyAndOrderFront` + `NSApp.activate`
   to get a comfortable typing surface. This also sidesteps M4 — no `styleMask` mutation, one panel.
+  *(Revised in implementation: it is **three** windows, not one. `.nonactivatingPanel` lives in
+  `styleMask` and so cannot be dropped after Stop — and it must be dropped, because such a window
+  can be key while another app is active, where ⌘C reaches nothing. Wrap-up is therefore an
+  ordinary `NSWindow`; the pill is borderless. See AGENTS.md §4.)*
 
 **Speaker correction without a transcript view.** If the transcript is never shown, there's no way
 to learn that S1 is Marie. The Summary tab lists detected speakers with two or three representative

@@ -20,7 +20,8 @@ between Phase 2 and "done", and it decides a default for the modal meeting.
 **What works end to end today:** menubar record → two-track capture → Parakeet transcription →
 offline diarization + echo filter → `meeting.md` with marked regions → audio deleted → floating
 panel for notes → templated summary via Ollama → title derived and folder renamed → speaker
-rename/merge, plus a Meetings window for going back to any of it. 107 tests.
+rename/merge, plus a Meetings window for going back to any of it — with rename, delete-to-Trash
+and the backend status beside Summarise. 114 tests.
 
 > ### ⚠️ Carried debt: Phase 2 is unverified on real multi-speaker audio
 > Every diarization and echo path is covered by synthetic unit tests only; the one real
@@ -133,6 +134,12 @@ exactly one remote speaker.** The second is the one expected to fail.
       spinner and progress text while generating; contextual menubar item
 - [x] **Round 3 (layout):** safe-area inset, picker alignment, pill clipping, resize animation,
       and intrinsic-size snap-back — all fixed; pill split into its own borderless window
+- [x] **Round 4 (2026-08-15), which supersedes parts of rounds 2–3.** A recording now **starts
+      collapsed as the pill** (so "notes field focused on record start" no longer applies — the
+      panel isn't up), and the two expanded modes **share one resizable frame** instead of the
+      three fixed sizes above. `minSize` is enforced in `windowWillResize`, because the property
+      alone is ignored once a hosting view is installed. **Wrap-up became its own ordinary
+      window** at normal level, so other apps can cover it once the call is over.
 - [ ] Global hotkey (needs Carbon `RegisterEventHotKey`) — menubar "Show notes panel" for now
 
 ### Phase 6 — History window
@@ -153,6 +160,15 @@ exactly one remote speaker.** The second is the one expected to fail.
       dragging fixed by dropping `isMovableByWindowBackground`; one-click focus via
       `acceptsFirstMouse`; notes field focused on record start; "Show last meeting" removed from
       the menu bar once a meeting is summarized; Copy-summary button and context menu
+- [x] **Feedback round 2 (2026-08-15):** rename (with `title_source: user`) and delete-to-Trash,
+      joined in the header by Open-in-editor and Reveal so the four escape hatches sit behind one
+      `⋯` menu rather than lining the header with buttons; Ollama/model status beside Summarise;
+      settings pane reworked (one "Echo from speakers" section, `transcription.enabled` toggle
+      removed, Reveal-config now creates the file first); UK spelling in the UI; menubar icon
+      fixed to actually go red
+- [x] Both menus are built by one `rowActions(for:)`, and `openInEditor`/`revealInFinder` take
+      the meeting explicitly — acting on `selected` would have opened the wrong file when
+      right-clicking an unselected row
 
 ### Phase 7 — Ask (optional, first to cut)
 - [ ] **A third tab** in `MeetingDetailView` (Notes / Summary / Ask), so it appears in both the
@@ -192,12 +208,6 @@ exactly one remote speaker.** The second is the one expected to fail.
 
 Ideas with enough analysis attached that picking one up doesn't start from zero. Each says
 what makes it non-trivial, because none of these are as small as they look.
-
-- [ ] **British spelling in the summaries themselves.** The UI is British now, but the templates
-      still say "summarize" to the model and nothing asks it for British English, so the output
-      spelling is whatever the model defaults to. One line in each template, or in `Prompt.swift`'s
-      shared framing. Cheap, but it changes generated output, so it wants a before/after read on
-      a real meeting rather than a blind edit.
 
 - [x] **Rename and delete a meeting. Done 2026-08-15.** Both in `MeetingAdmin`, reachable from a
       row context menu and an ellipsis menu in the detail header. Rename writes the title *and*
