@@ -33,6 +33,9 @@ final class SettingsWindowController {
 struct SettingsView: View {
     @State private var settings = Config.current()
     @State private var saveError: String?
+    @State private var installedModels: [String] = []
+    @State private var modelsError: String?
+    private var templates: [SummaryTemplate] { TemplateStore.all() }
 
     var body: some View {
         Form {
@@ -139,6 +142,61 @@ struct SettingsView: View {
                 )
             }
 
+            Section {
+                Picker(
+                    "Summary model",
+                    selection: Binding(
+                        get: { settings.summaryModel ?? Config.summaryModel() },
+                        set: { newValue in
+                            save { $0.summaryModel = newValue }
+                            settings = Config.current()
+                        }
+                    )
+                ) {
+                    ForEach(installedModels, id: \.self) { Text($0).tag($0) }
+                    // Keep the configured model selectable even if Ollama is
+                    // down or the model was removed — otherwise opening Settings
+                    // while offline would silently reset it.
+                    let current = settings.summaryModel ?? Config.summaryModel()
+                    if !installedModels.contains(current) {
+                        Text("\(current) (not installed)").tag(current)
+                    }
+                }
+                .disabled(installedModels.isEmpty && modelsError == nil)
+
+                Picker(
+                    "Default template",
+                    selection: Binding(
+                        get: { settings.defaultTemplate ?? Config.defaultTemplate() },
+                        set: { newValue in
+                            save { $0.defaultTemplate = newValue }
+                            settings = Config.current()
+                        }
+                    )
+                ) {
+                    ForEach(templates, id: \.id) { Text($0.name).tag($0.id) }
+                }
+
+                LabeledContent("Templates") {
+                    Button("Open Templates Folder") {
+                        try? TemplateStore.seedIfNeeded()
+                        NSWorkspace.shared.open(TemplateStore.directory)
+                    }
+                }
+            } header: {
+                Text("Summaries")
+            } footer: {
+                if let modelsError {
+                    Text(modelsError).font(.caption).foregroundStyle(.orange)
+                } else {
+                    Text(
+                        "Summaries run locally through Ollama. Templates are plain markdown "
+                        + "files — the text in them is the instruction sent to the model, so "
+                        + "you can edit or add your own."
+                    ).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
             if let saveError {
                 Section {
                     Text(saveError).foregroundStyle(.red).font(.caption)
@@ -159,6 +217,17 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
+        .task {
+            do {
+                installedModels = try await OllamaClient().tags()
+                modelsError = installedModels.isEmpty
+                    ? "No models installed — run `ollama pull gemma4`." : nil
+            } catch {
+                modelsError =
+                    "Couldn't reach Ollama, so this list may be stale. "
+                    + "Recording and transcription don't need it; summaries do."
+            }
+        }
     }
 
     private func chooseFolder() {

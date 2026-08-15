@@ -17,6 +17,9 @@ struct Settings: Codable, Sendable, Equatable {
     var micVoiceProcessing: Bool?
     var transcriptEchoFilter: Bool?
     var expectedParticipants: Int?
+    var summaryModel: String?
+    var summaryContextTokens: Int?
+    var defaultTemplate: String?
     var transcription: Transcription?
 
     enum CodingKeys: String, CodingKey {
@@ -25,6 +28,9 @@ struct Settings: Codable, Sendable, Equatable {
         case micVoiceProcessing = "mic_voice_processing"
         case transcriptEchoFilter = "transcript_echo_filter"
         case expectedParticipants = "expected_participants"
+        case summaryModel = "summary_model"
+        case summaryContextTokens = "summary_context_tokens"
+        case defaultTemplate = "default_template"
         case transcription
     }
 }
@@ -109,6 +115,23 @@ enum Config {
         let expected = expectedParticipants()
         guard expected > 0 else { return nil }
         return Swift.max(1, expected - 1)
+    }
+
+    /// Ollama model used for summaries.
+    static func summaryModel() -> String {
+        current().summaryModel ?? "gemma4:latest"
+    }
+
+    /// Context window requested from Ollama. 32768 measured in Spike C at
+    /// 552 MiB of KV cache — cheap enough that a one-hour meeting summarizes in
+    /// a single pass, which avoids losing context across map-reduce windows.
+    static func summaryContextTokens() -> Int {
+        current().summaryContextTokens ?? 32768
+    }
+
+    /// Template id used when none is chosen for a meeting.
+    static func defaultTemplate() -> String {
+        current().defaultTemplate ?? "general"
     }
 
     /// Resolve the recordings root from an optional CLI override.

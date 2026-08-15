@@ -12,8 +12,9 @@ AGENTS.md **in the same commit**.
 
 ## Current state
 
-**Phase:** 3 complete; 4 next (summaries)
-**Next action:** Phase 4 — `SummaryEngine` over Ollama, templates, title/speaker proposals.
+**Phase:** 4 code-complete; 5 next (the panel)
+**Next action:** Phase 5 — the recording strip and wrap-up panel, which is where summarizing
+stops being a CLI command and becomes a button.
 Phase 2's multi-speaker paths stay unverified until the corpus exists; that does **not** block
 later phases, but it does block calling Phase 2 done.
 
@@ -99,14 +100,19 @@ exactly one remote speaker.** The second is the one expected to fail.
 - [x] Signed with a real Apple Development identity so TCC grants survive rebuilds
 
 ### Phase 4 — Summaries
-- [ ] `SummaryEngine` on `/api/chat` (`num_ctx: 32768` — Spike C, `truncate:false`,
-      `shift:false`, 300s)
-- [ ] Single pass when it fits; map-reduce with carry-forward context only past ~2.5h
-- [ ] Templates as markdown files + seed on first run (F9)
-- [ ] Title + speaker-name proposals via schema-constrained `format` (F12)
-- [ ] Folder rename on titling
-- [ ] Stream-to-buffer, replace only on success
-- [ ] Settings pane: model picker from `/api/tags`
+- [x] `OllamaClient` on native `/api/chat` (`num_ctx: 32768`, `truncate:false`, `shift:false`,
+      300s cold-start timeout), streaming NDJSON, `keep_alive:0` unload of **our** model only
+- [x] Single pass by default; map-reduce with carry-forward digests, triggered by Ollama's
+      `exceed_context_size_error` and sized from the token counts it reports
+- [x] Templates as markdown files, seeded once and never overwritten (F9)
+- [x] Title + speaker-name proposals via schema-constrained `format` (F12); names land in
+      `.plume/proposals.json` awaiting a click, only the title is applied
+- [x] Folder rename on titling
+- [x] Stream-to-buffer, region replaced only on success (invariant 2)
+- [x] Settings: model picker from `/api/tags`, default-template picker, open-templates-folder
+- [x] `doctor`: Ollama reachability, model installed, context reported
+- [x] `plume summarize <session> [--template id]` dev command
+- [ ] Wire the trigger into the UI — currently CLI-only; Phase 5 puts it in the wrap-up panel
 
 ### Phase 5 — The panel
 - [ ] Recording strip (non-activating) + hotkeys

@@ -28,6 +28,14 @@ public enum PlumeApp {
         if let index = args.firstIndex(of: "diarize"), index + 1 < args.count {
             runDiarizeAndExit(path: args[index + 1])
         }
+        // Dev tool: summarize a session folder in place. Phase 5 moves the
+        // trigger into the wrap-up panel; this keeps it verifiable meanwhile.
+        if let index = args.firstIndex(of: "summarize"), index + 1 < args.count {
+            let template = args.firstIndex(of: "--template").flatMap {
+                $0 + 1 < args.count ? args[$0 + 1] : nil
+            }
+            runSummarizeAndExit(path: args[index + 1], templateID: template)
+        }
 
         let app = NSApplication.shared
         // Menubar-only: no Dock icon, no windows by default. Matches LSUIElement
@@ -53,6 +61,42 @@ public enum PlumeApp {
 
             """.utf8))
         exit(DoctorReport.allOK(checks) ? 0 : 1)
+    }
+
+    private static func runSummarizeAndExit(path: String, templateID: String?) -> Never {
+        let session = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let template = templateID.flatMap { TemplateStore.template(id: $0) }
+            ?? TemplateStore.default()
+        let done = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var code: Int32 = 0
+
+        Task.detached {
+            do {
+                Swift.print("session : \(session.lastPathComponent)")
+                Swift.print("template: \(template.name) (\(template.id))")
+                Swift.print("model   : \(Config.summaryModel()) @ num_ctx \(Config.summaryContextTokens())\n")
+
+                nonisolated(unsafe) var lastWindow = -1
+                let started = Date()
+                try await SummaryEngine().summarize(session: session, template: template) {
+                    progress in
+                    if progress.windowsTotal > 1, progress.windowsDone != lastWindow {
+                        lastWindow = progress.windowsDone
+                        FileHandle.standardError.write(Data(
+                            "  window \(progress.windowsDone + 1)/\(progress.windowsTotal)…\n".utf8))
+                    }
+                }
+                Swift.print(String(
+                    format: "done in %.1fs — summary written to meeting.md",
+                    Date().timeIntervalSince(started)))
+            } catch {
+                FileHandle.standardError.write(Data("summarize failed: \(error)\n".utf8))
+                code = 1
+            }
+            done.signal()
+        }
+        done.wait()
+        exit(code)
     }
 
     private static func runDiarizeAndExit(path: String) -> Never {
@@ -240,7 +284,8 @@ final class AppController {
     private func runDiagnostics() {
         let root = self.root
         Task.detached(priority: .userInitiated) {
-            let checks = DoctorReport.run(recordingsRoot: root, probeAudio: true)
+            var checks = DoctorReport.run(recordingsRoot: root, probeAudio: true)
+            checks.append(await DoctorReport.checkSummarization())
             await MainActor.run { [weak self] in
                 self?.presentDiagnostics(checks)
             }

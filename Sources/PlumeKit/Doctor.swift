@@ -30,6 +30,42 @@ enum DoctorReport {
         ]
     }
 
+    /// Async because it talks to the daemon. Kept separate from `run` so the
+    /// synchronous startup path stays synchronous.
+    static func checkSummarization() async -> Check {
+        let client = OllamaClient()
+        let installed: [String]
+        do {
+            installed = try await client.tags()
+        } catch OllamaClient.ClientError.unreachable {
+            // Not an error at startup: Ollama.app starts its daemon lazily, so
+            // a cold machine legitimately looks like this until something wakes it.
+            return Check(
+                name: "summarization",
+                status: .warn("Ollama isn't running"),
+                remediation: "start Ollama (or run `ollama list`); summaries need it, recording doesn't"
+            )
+        } catch {
+            return Check(
+                name: "summarization", status: .warn("Ollama check failed: \(error)"),
+                remediation: nil)
+        }
+
+        let wanted = Config.summaryModel()
+        guard installed.contains(wanted) else {
+            return Check(
+                name: "summarization",
+                status: .fail("model \"\(wanted)\" is not installed"),
+                remediation: installed.isEmpty
+                    ? "run `ollama pull \(wanted)`"
+                    : "run `ollama pull \(wanted)`, or pick one of: \(installed.prefix(4).joined(separator: ", "))"
+            )
+        }
+        return Check(
+            name: "summarization", status: .ok,
+            remediation: "\(wanted) @ num_ctx \(Config.summaryContextTokens())")
+    }
+
     static func checkMicrophone() -> Check {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
         switch status {
