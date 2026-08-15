@@ -111,7 +111,7 @@ an earlier design. **Don't "fix" them without asking.**
 | Audio vanishes after transcription | Invariant 6, a requirement not a bug. |
 | The panel opens on Notes but Meetings opens on Summary | Deliberate, not an inconsistency. The panel is where you *write* a record; the window is where you *read* one. Fixed per surface, never per meeting — a default that varied with the selection would make the tab jump as you scroll the list. |
 | Summarize sits below the tabs, not inside Notes | So the default tab isn't load-bearing: the action stays reachable from either tab. It also leaves the bottom edge free for Phase 7's Ask tab. |
-| A recording starts as the pill, and both expanded modes share one resizable frame | Reversed together. Two fixed sizes (340×300 recording, 430×580 wrap-up) assumed a live call wanted a smaller footprint — moot once the panel is only on screen when you deliberately open it. The panel's **top-right corner is the anchor** everywhere: the pill collapses to it and expands from it, so a resize anchored anywhere else drifts the pill by the width difference. |
+| A recording starts as the pill, and both expanded modes share one resizable frame | Reversed together. Two fixed sizes (340×300 recording, 430×580 wrap-up) assumed a live call wanted a smaller footprint — moot once the panel is only on screen when you deliberately open it. Collapse and expand must **pivot on the same corner**, or a round-trip drifts the pill by the difference in size. Top-right is only the *preferred* corner: `PanelAnchor` flips an axis when expanding from it would run off the screen, and the chosen corner is stored until the next expand — re-deriving it at collapse time is what makes the pill wander (covered by `PanelAnchorTests`). |
 | Two echo settings, not one | Different points in the pipeline and not interchangeable: `transcript_echo_filter` removes duplicates from the finished transcript (safe, default on), `mic_voice_processing` stops the echo reaching the recording but makes macOS duck all other audio for the whole meeting. Presented together, weaker one first. |
 | `transcription.enabled` has no toggle in Settings | Off, a recording rests at `recorded` forever — no transcript, no summary, no `meeting.md`. A switch that silently turns the whole app off doesn't belong beside ordinary preferences. The config key still works for the CLI. |
 | No Dock icon, and windows aren't in ⌘-Tab | Accessory apps are absent from ⌘-Tab **by rule**, not by window configuration — the only lever is `NSApp.setActivationPolicy(.regular)`, which brings a Dock icon and a real menu bar. Declined 2026-08-15. Windows are reached from the menu bar. |
@@ -123,7 +123,7 @@ hotkey, Phase 7 Ask — which will be a third tab in `MeetingDetailView`, not a 
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 122 tests
+swift build && swift test                      # library + 130 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
 ./.build/debug/plume doctor                    # checks — but see below
 ./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
@@ -255,7 +255,7 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-16, after the architecture-review pass.*
+*Last reviewed against the code: 2026-08-16, after the panel edge-awareness change.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass
 does not happen, and a silently wrong constraint is worse than a missing one — the next agent

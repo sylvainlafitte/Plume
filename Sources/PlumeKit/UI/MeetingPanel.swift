@@ -97,6 +97,15 @@ final class MeetingPanel {
     /// Below this the tabs, summarize bar and speaker list stop coexisting.
     private static let minSize = NSSize(width: 300, height: 260)
 
+    /// Decided once per expand and **kept** until the next one, deliberately:
+    /// re-deriving it at collapse time is not stable. If a bottom flip fires on a
+    /// short display, the expanded window ends up sitting low, and a re-derived
+    /// corner would then read "bottom" again and drop the pill to the bottom of
+    /// the screen instead of returning it to where the user left it. Storing it
+    /// makes the round-trip exact by construction, which is the property the old
+    /// fixed top-right rule was really buying.
+    private var anchor: PanelAnchor = .preferred
+
     func show(_ mode: Mode, content: some View) {
         self.mode = mode
         if mode == .pill {
@@ -104,6 +113,32 @@ final class MeetingPanel {
         } else {
             showExpanded(mode, content)
         }
+    }
+
+    // MARK: - Screen-aware geometry
+
+    /// The usable area of the display the given frame sits on.
+    ///
+    /// Picked from the frame's centre rather than `NSScreen.main`, which is the
+    /// screen of the *key* window — on a second display that is routinely not the
+    /// one the panel is on. `visibleFrame` already excludes the menu bar and the
+    /// Dock, so nothing else has to know about either.
+    ///
+    /// This is the only part of the placement maths that touches AppKit; the rest
+    /// lives in `PanelAnchor`, where it can be tested without a screen.
+    private func visibleArea(around frame: NSRect) -> NSRect {
+        let centre = NSPoint(x: frame.midX, y: frame.midY)
+        let screen = NSScreen.screens.first { $0.frame.contains(centre) }
+            ?? NSScreen.main
+        return screen?.visibleFrame ?? frame
+    }
+
+    private func anchor(expanding pillFrame: NSRect, to size: NSSize) -> PanelAnchor {
+        .expanding(from: pillFrame, to: size, within: visibleArea(around: pillFrame))
+    }
+
+    private func constrained(_ frame: NSRect) -> NSRect {
+        PanelAnchor.constrain(frame, within: visibleArea(around: frame))
     }
 
     // MARK: - Expanded states
@@ -127,14 +162,18 @@ final class MeetingPanel {
         // — the same drift that made the pill move before the two modes shared
         // one size.
         if let previous = visibleExpanded, previous !== window {
-            window.setFrame(previous.frame, display: false)
+            // The handoff inherits the anchor along with the frame: the two are
+            // the same panel at different ages, so a Stop must not change which
+            // corner a later collapse pivots on.
+            window.setFrame(constrained(previous.frame), display: false)
             previous.orderOut(nil)
         } else if let pill, pill.isVisible {
-            // Expanding from the pill: keep the same top-right corner.
-            var frame = window.frame
-            frame.origin.x = pill.frame.maxX - frame.width
-            frame.origin.y = pill.frame.maxY - frame.height
-            window.setFrame(frame, display: false)
+            // Expanding from the pill: hold one corner still. Which one is
+            // decided here, once, and reused by the next collapse.
+            anchor = anchor(expanding: pill.frame, to: window.frame.size)
+            window.setFrame(
+                constrained(anchor.frame(of: window.frame.size, pivotedOn: pill.frame)),
+                display: false)
             pill.orderOut(nil)
         }
 
@@ -163,16 +202,16 @@ final class MeetingPanel {
         let pill = ensurePill()
         pillHosting?.rootView = AnyView(content)
 
-        // Anchor to the expanded window's top-right so collapsing doesn't jump —
-        // whichever of the two is up. Falls back to building the recording panel
-        // when neither has been shown, because a recording now starts collapsed:
-        // its autosaved frame is where the user last left the panel, which is a
-        // better guess than a screen corner.
-        let anchor = visibleExpanded ?? ensureMain()
-        pill.setFrameOrigin(NSPoint(
-            x: anchor.frame.maxX - Self.pillSize.width,
-            y: anchor.frame.maxY - Self.pillSize.height))
-        anchor.orderOut(nil)
+        // Collapse onto the corner the last expand pivoted on, so the pill lands
+        // exactly where it came from. Falls back to building the recording panel
+        // when neither expanded window has been shown, because a recording now
+        // starts collapsed: its autosaved frame is where the user last left the
+        // panel, which is a better guess than a screen corner.
+        let source = visibleExpanded ?? ensureMain()
+        pill.setFrame(
+            constrained(anchor.frame(of: Self.pillSize, pivotedOn: source.frame)),
+            display: false)
+        source.orderOut(nil)
         pill.orderFrontRegardless()
     }
 
