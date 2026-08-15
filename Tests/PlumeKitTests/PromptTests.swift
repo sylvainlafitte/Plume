@@ -41,6 +41,44 @@ struct PromptTests {
         #expect(prompt.localizedCaseInsensitiveContains("prefer the notes"))
     }
 
+    /// The conflict rule alone left a model that found no contradiction with
+    /// nothing to follow, so notes could be read and then ignored. Each of these
+    /// is an unconditional instruction — they apply whether or not the transcript
+    /// disagrees with anything.
+    @Test("notes guidance covers spelling, notes-only content and emphasis, not just conflict")
+    func notesGuidanceIsUnconditional() {
+        let prompt = Prompt.single(transcript: "t", notes: "n")
+        #expect(prompt.localizedCaseInsensitiveContains("spelling"))
+        #expect(prompt.localizedCaseInsensitiveContains("only in the notes"))
+        #expect(prompt.localizedCaseInsensitiveContains("mattered to them"))
+    }
+
+    /// Trusting the notes more must not become licence to invent — the one thing
+    /// every template forbids.
+    @Test("notes guidance still forbids invention")
+    func notesGuidanceForbidsInvention() {
+        let prompt = Prompt.single(transcript: "t", notes: "n")
+        #expect(prompt.localizedCaseInsensitiveContains("licenses invention"))
+    }
+
+    @Test("the map-reduce path weighs notes against the slices, not a transcript it never saw")
+    func reduceGuidanceNamesSlices() {
+        let prompt = Prompt.reduce(digests: ["d1", "d2"], notes: "n")
+        #expect(prompt.localizedCaseInsensitiveContains("prefer the notes"))
+        #expect(prompt.contains("the slices"))
+    }
+
+    @Test("no notes means no guidance about them")
+    func guidanceOmittedWithoutNotes() {
+        for prompt in [
+            Prompt.single(transcript: "t", notes: ""),
+            Prompt.reduce(digests: ["d"], notes: "  \n "),
+        ] {
+            #expect(!prompt.localizedCaseInsensitiveContains("prefer the notes"))
+            #expect(!prompt.localizedCaseInsensitiveContains("mattered to them"))
+        }
+    }
+
     // MARK: - Splitting
 
     @Test("splitting sizes windows from the reported token counts")

@@ -97,7 +97,10 @@ enum MeetingIdentityDeriver {
     static func derive(
         transcript: String, notes: String, client: OllamaClient
     ) async throws -> MeetingIdentity {
-        let user = Prompt.identity(transcript: transcript, notes: notes)
+        // The glossary is how "Kodi" becomes a proposal to name a speaker Cody,
+        // and how a product name reaches the title spelled the way you spell it.
+        let user = Prompt.identity(
+            transcript: transcript, notes: notes, vocabulary: VocabularyStore.contents())
         let response = try await client.chat(
             system: system, user: user,
             format: Data(schema.utf8),

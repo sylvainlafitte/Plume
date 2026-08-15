@@ -135,19 +135,24 @@ actor SummaryEngine {
         client: OllamaClient, transcript: String, notes: String, template: SummaryTemplate,
         onProgress: (@Sendable (Progress) -> Void)?
     ) async throws -> String {
+        // Read once per run, not once per window: the file is the user's and can
+        // change under a long map-reduce, and a glossary that differed between
+        // slices would compress the same term two ways.
+        let vocabulary = VocabularyStore.contents()
         // Try the whole meeting in one pass. At num_ctx 32768 an hour-long
         // meeting fits, and a single pass has no seams to lose context across.
         do {
             return try await stream(
                 client: client,
                 system: template.prompt,
-                user: Prompt.single(transcript: transcript, notes: notes),
+                user: Prompt.single(transcript: transcript, notes: notes, vocabulary: vocabulary),
                 onProgress: { onProgress?(Progress(partial: $0, windowsDone: 0, windowsTotal: 1)) })
         } catch OllamaClient.ClientError.contextExceeded(let promptTokens, let contextTokens) {
             // Only now do we chunk, and we size the windows from the counts
             // Ollama just reported rather than guessing.
             return try await mapReduce(
                 client: client, transcript: transcript, notes: notes, template: template,
+                vocabulary: vocabulary,
                 promptTokens: promptTokens, contextTokens: contextTokens,
                 onProgress: onProgress)
         }
@@ -160,7 +165,7 @@ actor SummaryEngine {
     /// the characteristic failure of naive chunking.
     private func mapReduce(
         client: OllamaClient, transcript: String, notes: String, template: SummaryTemplate,
-        promptTokens: Int, contextTokens: Int,
+        vocabulary: String, promptTokens: Int, contextTokens: Int,
         onProgress: (@Sendable (Progress) -> Void)?
     ) async throws -> String {
         let windows = Prompt.split(
@@ -172,7 +177,8 @@ actor SummaryEngine {
                 client: client,
                 system: Prompt.windowSystem,
                 user: Prompt.window(
-                    window, index: index, of: windows.count, prior: digests.last),
+                    window, index: index, of: windows.count, prior: digests.last,
+                    vocabulary: vocabulary),
                 onProgress: { partial in
                     onProgress?(Progress(
                         partial: partial, windowsDone: index, windowsTotal: windows.count))
@@ -183,7 +189,7 @@ actor SummaryEngine {
         return try await stream(
             client: client,
             system: template.prompt,
-            user: Prompt.reduce(digests: digests, notes: notes),
+            user: Prompt.reduce(digests: digests, notes: notes, vocabulary: vocabulary),
             onProgress: { onProgress?(Progress(
                 partial: $0, windowsDone: windows.count, windowsTotal: windows.count)) })
     }

@@ -185,6 +185,15 @@ struct SettingsView: View {
                         NSWorkspace.shared.open(TemplateStore.directory)
                     }
                 }
+
+                LabeledContent("Vocabulary") {
+                    Button("Open Vocabulary File") {
+                        // Seed first: opening a path that does not exist yet
+                        // silently does nothing, which reads as a broken button.
+                        try? VocabularyStore.seedIfNeeded()
+                        NSWorkspace.shared.open(VocabularyStore.url)
+                    }
+                }
             } header: {
                 Text("Summaries")
             } footer: {
@@ -194,7 +203,9 @@ struct SettingsView: View {
                     Text(
                         "Summaries run locally through Ollama. Templates are plain markdown "
                         + "files — the text in them is the instruction sent to the model, so "
-                        + "you can edit or add your own."
+                        + "you can edit or add your own. The vocabulary file lists names, "
+                        + "products and jargon so summaries spell them correctly; it cannot "
+                        + "correct the transcript, which is written before it is read."
                     ).font(.caption).foregroundStyle(.secondary)
                 }
             }
