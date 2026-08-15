@@ -187,17 +187,7 @@ actor TranscriptionCoordinator {
             }
             merged = result.segments
         }
-        // Swift's sort is not stable, so ties on start_ms would order
-        // arbitrarily — and re-running the same session could produce a
-        // different transcript. Break ties on end, then speaker, then text so
-        // output is deterministic. This matters more after Phase 2: diarization
-        // splits one track into several speakers, multiplying simultaneous starts.
-        merged.sort { a, b in
-            if a.start_ms != b.start_ms { return a.start_ms < b.start_ms }
-            if a.end_ms != b.end_ms { return a.end_ms < b.end_ms }
-            if a.speaker != b.speaker { return a.speaker < b.speaker }
-            return a.text < b.text
-        }
+        merged = Transcript.sorted(merged)
 
         // Write meeting.md now, with the summary still pending. Deliberately
         // *before* summarization exists: a failed or never-requested summary
@@ -213,7 +203,7 @@ actor TranscriptionCoordinator {
         // Flat keys, one per *remote* speaker — this map is what Phase 4/5 fill
         // in with real names (speaker_S1: Marie). "me" and "them" are already
         // meaningful labels and need no mapping, so listing them is noise.
-        for label in speakers where label.hasPrefix("S") && label.dropFirst().allSatisfy(\.isNumber) {
+        for label in speakers where Speaker.isRemoteLabel(label) {
             frontmatter.append(("speaker_\(label)", label))
         }
 
@@ -399,6 +389,25 @@ struct Transcript {
         let start_ms: Int
         let end_ms: Int
         let text: String
+    }
+
+    /// Deterministic order for merged segments.
+    ///
+    /// Swift's sort is not stable, so ties on `start_ms` would order arbitrarily
+    /// and re-running the same session could produce a different transcript.
+    /// Diarization multiplies simultaneous starts by splitting one track into
+    /// several speakers, so ties are common rather than exotic.
+    ///
+    /// Lives here rather than inline in the coordinator so the test can exercise
+    /// *this* comparator — it used to re-declare an identical closure locally and
+    /// therefore passed regardless of what production did.
+    static func sorted(_ segments: [Segment]) -> [Segment] {
+        segments.sorted { a, b in
+            if a.start_ms != b.start_ms { return a.start_ms < b.start_ms }
+            if a.end_ms != b.end_ms { return a.end_ms < b.end_ms }
+            if a.speaker != b.speaker { return a.speaker < b.speaker }
+            return a.text < b.text
+        }
     }
 
     /// Segment lines only — the body of meeting.md's transcript region. The

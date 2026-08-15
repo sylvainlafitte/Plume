@@ -13,11 +13,28 @@ import Foundation
 /// sentence arrives here as ordinary text.
 actor SummaryEngine {
 
-    private let client: OllamaClient
+    /// Nil in production; a fixed client only when a caller supplies one.
+    private let injected: OllamaClient?
 
-    init(client: OllamaClient = OllamaClient()) {
-        self.client = client
+    init(client: OllamaClient? = nil) {
+        self.injected = client
     }
+
+    /// One client per summarize, resolved when the operation starts.
+    ///
+    /// **Not stored.** `OllamaClient.init` defaults `model` to
+    /// `Config.summaryModel()`, and both UI surfaces build their engine during
+    /// `AppController.init` — so a stored client pins whatever model was
+    /// configured at launch. Settings, the readiness caption beside Summarise
+    /// and `doctor` all build fresh clients, so after changing the model they
+    /// would all report the new one while the old one actually wrote the
+    /// summary — and got stamped into `model:` as provenance, in the only
+    /// surviving record of the meeting.
+    ///
+    /// **Not re-resolved per access either.** `unload()` runs minutes after
+    /// `stream()`; resolving twice lets a model changed mid-generation make us
+    /// evict a model Plume never loaded. Ollama is shared.
+    private func currentClient() -> OllamaClient { injected ?? OllamaClient() }
 
     struct Progress: Sendable {
         var partial: String
@@ -29,11 +46,23 @@ actor SummaryEngine {
     ///
     /// - Parameter onProgress: called with the accumulating text so a UI can
     ///   show it arriving. Never used to write to disk.
+    /// - Returns: the session URL, which **changes** when deriving a title
+    ///   renames the folder. Callers used to search the parent for a folder
+    ///   whose name starts with the `yyyy-MM-dd-HHmm` stamp, which is ambiguous
+    ///   by construction: `RecordingSession` disambiguates a same-minute
+    ///   collision with a `-2` suffix and `renameFolder` drops it, so two
+    ///   meetings recorded in the same minute end up differing only by slug and
+    ///   the prefix match can return either. Back-to-back calls are the case
+    ///   the panel exists for. Handing the answer back removes the guess rather
+    ///   than making two copies of it agree.
+    @discardableResult
     func summarize(
         session: URL,
         template: SummaryTemplate,
         onProgress: (@Sendable (Progress) -> Void)? = nil
-    ) async throws {
+    ) async throws -> URL {
+        // Fixed for the duration of this summarize; current on the next one.
+        let client = currentClient()
         let meetingURL = session.appendingPathComponent("meeting.md")
         let document = try String(contentsOf: meetingURL, encoding: .utf8)
 
@@ -45,7 +74,7 @@ actor SummaryEngine {
         }
 
         let summary = try await generate(
-            transcript: transcript, notes: notes, template: template,
+            client: client, transcript: transcript, notes: notes, template: template,
             onProgress: onProgress)
 
         let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -54,7 +83,7 @@ actor SummaryEngine {
         // Only now does anything touch the file. Re-reads inside updateRegion,
         // so edits made while the model was running survive.
         try MeetingDocument.updateRegion(.summary, at: meetingURL, to: trimmed)
-        try stampFrontmatter(at: meetingURL, template: template)
+        stampFrontmatter(at: meetingURL, template: template, model: client.model)
 
         // Title and speaker names, derived from what was actually said. Failure
         // here must not undo a good summary, so it is best-effort.
@@ -73,6 +102,8 @@ actor SummaryEngine {
 
         // Ours to unload, and only ours — Ollama is shared.
         try? await client.unload()
+
+        return finalSession
     }
 
     /// Apply the title (safe — it labels the meeting) and leave speaker names as
@@ -101,13 +132,14 @@ actor SummaryEngine {
     // MARK: - Generation
 
     private func generate(
-        transcript: String, notes: String, template: SummaryTemplate,
+        client: OllamaClient, transcript: String, notes: String, template: SummaryTemplate,
         onProgress: (@Sendable (Progress) -> Void)?
     ) async throws -> String {
         // Try the whole meeting in one pass. At num_ctx 32768 an hour-long
         // meeting fits, and a single pass has no seams to lose context across.
         do {
             return try await stream(
+                client: client,
                 system: template.prompt,
                 user: Prompt.single(transcript: transcript, notes: notes),
                 onProgress: { onProgress?(Progress(partial: $0, windowsDone: 0, windowsTotal: 1)) })
@@ -115,7 +147,7 @@ actor SummaryEngine {
             // Only now do we chunk, and we size the windows from the counts
             // Ollama just reported rather than guessing.
             return try await mapReduce(
-                transcript: transcript, notes: notes, template: template,
+                client: client, transcript: transcript, notes: notes, template: template,
                 promptTokens: promptTokens, contextTokens: contextTokens,
                 onProgress: onProgress)
         }
@@ -127,7 +159,7 @@ actor SummaryEngine {
     /// early and revisited later would otherwise be lost at the seam, which is
     /// the characteristic failure of naive chunking.
     private func mapReduce(
-        transcript: String, notes: String, template: SummaryTemplate,
+        client: OllamaClient, transcript: String, notes: String, template: SummaryTemplate,
         promptTokens: Int, contextTokens: Int,
         onProgress: (@Sendable (Progress) -> Void)?
     ) async throws -> String {
@@ -137,6 +169,7 @@ actor SummaryEngine {
 
         for (index, window) in windows.enumerated() {
             let digest = try await stream(
+                client: client,
                 system: Prompt.windowSystem,
                 user: Prompt.window(
                     window, index: index, of: windows.count, prior: digests.last),
@@ -148,6 +181,7 @@ actor SummaryEngine {
         }
 
         return try await stream(
+            client: client,
             system: template.prompt,
             user: Prompt.reduce(digests: digests, notes: notes),
             onProgress: { onProgress?(Progress(
@@ -157,7 +191,7 @@ actor SummaryEngine {
     /// Accumulate a streamed response in memory. Nothing is written until the
     /// stream completes — invariant 2.
     private func stream(
-        system: String, user: String, onProgress: @escaping @Sendable (String) -> Void
+        client: OllamaClient, system: String, user: String, onProgress: @escaping @Sendable (String) -> Void
     ) async throws -> String {
         var buffer = ""
         for try await delta in client.stream(system: system, user: user) {
@@ -169,27 +203,33 @@ actor SummaryEngine {
 
     // MARK: - Frontmatter
 
-    private func stampFrontmatter(at url: URL, template: SummaryTemplate) throws {
-        let document = try String(contentsOf: url, encoding: .utf8)
-        var pairs = MeetingDocument.frontmatter(in: document)
-
-        func set(_ key: String, _ value: String) {
-            if let index = pairs.firstIndex(where: { $0.0 == key }) {
-                pairs[index] = (key, value)
-            } else {
-                pairs.append((key, value))
+    /// Record which template and model produced the summary, and when.
+    ///
+    /// Not rethrown: `updateFrontmatter` throws when the closing `---` is gone,
+    /// which means the user removed the frontmatter by hand. The summary region
+    /// is already written and correct — a document in that state must not lose
+    /// its summary, nor stall before `state.json` reaches `summarized`
+    /// (AGENTS.md §4: blocking must preserve the stage reached). Logged, where
+    /// the previous inline splice returned in silence.
+    ///
+    /// Routing through `updateFrontmatter` also re-reads the file first, rather
+    /// than splicing into the copy read before the summary was written —
+    /// invariant 1's "re-read from disk before every write".
+    private func stampFrontmatter(
+        at url: URL, template: SummaryTemplate, model: String
+    ) {
+        do {
+            try MeetingDocument.updateFrontmatter(at: url) { pairs in
+                MeetingDocument.setValue(template.id, for: "template", in: &pairs)
+                MeetingDocument.setValue(model, for: "model", in: &pairs)
+                MeetingDocument.setValue(
+                    ISO8601DateFormatter().string(from: Date()),
+                    for: "summary_generated", in: &pairs)
             }
+        } catch {
+            FileHandle.standardError.write(Data(
+                "could not stamp frontmatter: \(error)\n".utf8))
         }
-        set("template", template.id)
-        set("model", client.model)
-        set("summary_generated", ISO8601DateFormatter().string(from: Date()))
-
-        // Replace only the frontmatter block, leaving every region untouched.
-        guard let end = document.range(of: "\n---\n", range: document.startIndex..<document.endIndex)
-        else { return }
-        let rebuilt = MeetingDocument.renderFrontmatter(pairs)
-            + String(document[end.upperBound...])
-        try MeetingDocument.write(rebuilt, to: url)
     }
 }
 

@@ -49,7 +49,7 @@ final class HistoryModel: MeetingDetailModel {
     var speakerRows: [SpeakerRow] = []
     var templateID: String = Config.defaultTemplate()
     var isGenerating = false
-    var error: String?
+    var detailError: String?
     // Opens on the result; selecting another meeting deliberately does *not*
     // reset this, so the tab never jumps as you move down the list.
     var detailTab: MeetingTab = .summary
@@ -63,9 +63,10 @@ final class HistoryModel: MeetingDetailModel {
     var initialTab: MeetingTab { .summary }
     var canSummarize: Bool { selected != nil }
     var blockedReason: String? { nil }
-    var detailError: String? { error }
     func notesEdited() { scheduleSave() }
     var selected: MeetingEntry? { entries.first { $0.url == selection } }
+    /// MeetingDetailModel's view of "the meeting on screen" is the selection.
+    var session: URL? { selection }
     /// Surfaced as a count so a stalled queue is visible rather than inferred.
     var awaitingCount: Int { entries.filter(\.awaitingSummary).count }
 
@@ -83,7 +84,7 @@ final class HistoryModel: MeetingDetailModel {
 
     func select(_ url: URL) {
         selection = url
-        error = nil
+        detailError = nil
         loadSelected()
     }
 
@@ -93,47 +94,38 @@ final class HistoryModel: MeetingDetailModel {
         notes = ""
         guard let selected else { return }
         notes = NotesStore.read(from: selected.url)
-        guard
-            let document = try? String(
-                contentsOf: selected.url.appendingPathComponent("meeting.md"),
-                encoding: .utf8)
-        else { return }
-
-        if let existing = try? MeetingDocument.read(.summary, from: document) {
-            summary = existing == "*pending*" ? "" : existing
-        }
-        if let transcript = try? MeetingDocument.read(.transcript, from: document) {
-            let proposals = MeetingIdentity.load(from: selected.url)?.speakers ?? []
-            speakerRows = SpeakerEditing.speakers(in: transcript)
-                .filter { $0.label != Speaker.me.label }
-                .map { entry in
-                    SpeakerRow(
-                        label: entry.label, samples: entry.samples,
-                        proposal: proposals.first { $0.label == entry.label })
-                }
-        }
+        reloadContent()
     }
 
-    /// Debounced whole-file save, mirroring the panel — notes are free text and
-    /// every keystroke would otherwise rewrite the file.
-    private var saveTimer: Timer?
-
-    func scheduleSave() {
-        saveTimer?.invalidate()
-        saveTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.flushNotes() }
-        }
+    // Ignored by observation: a timer is not view state, and `lazy` and the
+    // @Observable macro cannot coexist on a tracked property.
+    @ObservationIgnored private lazy var autosave = NotesAutosave {
+        [weak self] in self?.writeNotes()
     }
 
-    func flushNotes() {
-        saveTimer?.invalidate()
-        saveTimer = nil
+    func scheduleSave() { autosave.schedule() }
+    func flushNotes() { autosave.flush() }
+
+    private func writeNotes() {
         guard let selected else { return }
         try? NotesStore.write(notes, to: selected.url)
         // Keep meeting.md's Notes region in step, or a regenerated summary would
         // read the stale copy.
-        try? MeetingDocument.updateRegion(
-            .notes, at: selected.url.appendingPathComponent("meeting.md"), to: notes)
+        //
+        // Only once the file exists — a recorded-but-untranscribed meeting is
+        // listed here and has no `meeting.md` yet, which is a normal resting
+        // state, not an error. Beyond that the failure is surfaced rather than
+        // dropped: `updateRegion` throws when a marker is missing (invariant 1),
+        // and silently continuing would keep accepting notes that never reach
+        // the document the summariser reads. Set, never cleared — the same
+        // field carries summarize errors.
+        let meetingURL = selected.url.appendingPathComponent("meeting.md")
+        guard FileManager.default.fileExists(atPath: meetingURL.path) else { return }
+        do {
+            try MeetingDocument.updateRegion(.notes, at: meetingURL, to: notes)
+        } catch {
+            self.detailError = "\(error)"
+        }
     }
 
     // MARK: - Actions
@@ -156,14 +148,14 @@ final class HistoryModel: MeetingDetailModel {
     func renameMeeting(_ url: URL, to title: String) {
         do {
             let renamed = try MeetingAdmin.rename(session: url, to: title)
-            error = nil
+            detailError = nil
             entries = MeetingLibrary.entries(in: root)
             // Follow the meeting to its new folder rather than losing the
             // selection to a URL that no longer exists.
             if selection == url { selection = renamed }
             loadSelected()
         } catch {
-            self.error = "\(error)"
+            self.detailError = "\(error)"
         }
     }
 
@@ -174,9 +166,9 @@ final class HistoryModel: MeetingDetailModel {
         let index = entries.firstIndex { $0.url == url }
         do {
             try MeetingAdmin.trash(session: url)
-            error = nil
+            detailError = nil
         } catch {
-            self.error = "\(error)"
+            self.detailError = "\(error)"
             return
         }
         entries = MeetingLibrary.entries(in: root)
@@ -194,63 +186,24 @@ final class HistoryModel: MeetingDetailModel {
             [url.appendingPathComponent("meeting.md")])
     }
 
-    func summarize() {
-        guard let selected, !isGenerating else { return }
-        // Debounced edits must reach disk before the engine reads them.
-        flushNotes()
-        detailTab = .summary
-        isGenerating = true
-        error = nil
-        summary = ""
-        progressNote = "Loading the model…"
-        let template = TemplateStore.template(id: templateID) ?? TemplateStore.default()
-        let url = selected.url
+    func summarize() { runSummarize(engine: engine) }
 
-        Task { [engine] in
-            do {
-                try await engine.summarize(session: url, template: template) { progress in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.summary = progress.partial
-                        self.progressNote = progress.windowsTotal > 1
-                            ? "Summarising — part \(progress.windowsDone + 1) of \(progress.windowsTotal)…"
-                            : "Summarising…"
-                    }
-                }
-            } catch {
-                await MainActor.run { self.error = "\(error)" }
-            }
-            await MainActor.run {
-                self.isGenerating = false
-                // Summarizing renames the folder once a title exists, so the
-                // list — and the selection — have to be rebuilt.
-                let stamp = url.lastPathComponent.prefix(15)
-                self.entries = MeetingLibrary.entries(in: self.root)
-                self.selection = self.entries
-                    .first { $0.url.lastPathComponent.hasPrefix(stamp) }?.url ?? self.selection
-                self.loadSelected()
-            }
-        }
+    /// - Parameter session: the URL the engine returned. Summarizing renames the
+    ///   folder once a title exists, so the list — and the selection — are
+    ///   rebuilt around the meeting's new home rather than around a prefix match
+    ///   two same-minute meetings would both satisfy.
+    func summarizingFinished(session: URL) {
+        entries = MeetingLibrary.entries(in: root)
+        selection = session
+        loadSelected()
     }
 
     func rename(_ label: String, to name: String) {
-        edit { try SpeakerEditing.rename(label, to: name, in: $0) }
+        applySpeakerEdit { try SpeakerEditing.rename(label, to: name, in: $0) }
     }
 
     func merge(_ source: String, into destination: String) {
-        edit { try SpeakerEditing.merge(source, into: destination, in: $0) }
-    }
-
-    private func edit(_ transform: @escaping (String) throws -> String) {
-        guard let selected else { return }
-        do {
-            try SpeakerEditing.apply(
-                to: selected.url.appendingPathComponent("meeting.md"), transform)
-            error = nil
-            loadSelected()
-        } catch {
-            self.error = "\(error)"
-        }
+        applySpeakerEdit { try SpeakerEditing.merge(source, into: destination, in: $0) }
     }
 }
 

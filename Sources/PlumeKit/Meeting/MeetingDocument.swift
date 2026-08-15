@@ -239,12 +239,25 @@ enum MeetingDocument {
         let document = try String(contentsOf: url, encoding: .utf8)
         var pairs = frontmatter(in: document)
         mutate(&pairs)
+        try write(
+            replacingFrontmatter(pairs, in: document, path: url.lastPathComponent), to: url)
+    }
+
+    /// Replace the frontmatter block, leaving every region byte-identical.
+    ///
+    /// Was written out three times — here, in `SummaryEngine.stampFrontmatter`
+    /// and in `SpeakerEditing.apply` — and the three disagreed on failure: this
+    /// one threw, the other two returned silently, so a document whose
+    /// frontmatter had been hand-deleted lost its provenance stamp with no error
+    /// raised anywhere. One implementation, one failure mode.
+    static func replacingFrontmatter(
+        _ pairs: [(String, String)], in document: String, path: String = "meeting.md"
+    ) throws -> String {
         guard let end = document.range(of: "\n---\n") else {
             throw DocumentError.missingMarker(
-                region: "frontmatter", marker: "closing ---", path: url.lastPathComponent)
+                region: "frontmatter", marker: "closing ---", path: path)
         }
-        try write(
-            renderFrontmatter(pairs) + String(document[end.upperBound...]), to: url)
+        return renderFrontmatter(pairs) + String(document[end.upperBound...])
     }
 
     /// Set a key, replacing it in place or appending it.

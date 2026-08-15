@@ -52,18 +52,25 @@ struct TranscriptSegmentTests {
     func deterministicOrder() {
         // Two speakers starting on the same millisecond is common once
         // diarization splits the system track; unstable sort would make the
-        // transcript differ between identical runs.
-        func sorted(_ input: [Transcript.Segment]) -> [Transcript.Segment] {
-            input.sorted { a, b in
-                if a.start_ms != b.start_ms { return a.start_ms < b.start_ms }
-                if a.end_ms != b.end_ms { return a.end_ms < b.end_ms }
-                if a.speaker != b.speaker { return a.speaker < b.speaker }
-                return a.text < b.text
-            }
-        }
+        // transcript differ between identical runs. Calls production's
+        // comparator — this test used to re-declare an identical closure
+        // locally and so passed regardless of what the coordinator did.
         let a = Transcript.Segment(speaker: "S2", start_ms: 100, end_ms: 200, text: "second")
         let b = Transcript.Segment(speaker: "S1", start_ms: 100, end_ms: 200, text: "first")
-        #expect(sorted([a, b]) == sorted([b, a]))
-        #expect(sorted([a, b]).first?.speaker == "S1")
+        #expect(Transcript.sorted([a, b]) == Transcript.sorted([b, a]))
+        #expect(Transcript.sorted([a, b]).first?.speaker == "S1")
+    }
+
+    @Test("remote-label detection agrees with Speaker.init")
+    func remoteLabels() {
+        // The coordinator tested this inline and disagreed on a bare "S":
+        // `allSatisfy` is true on an empty collection, so "S" read as remote
+        // there while `init(label:)` maps it to `.them`.
+        #expect(Speaker.isRemoteLabel("S1"))
+        #expect(Speaker.isRemoteLabel("S12"))
+        #expect(!Speaker.isRemoteLabel("S"))
+        #expect(!Speaker.isRemoteLabel("me"))
+        #expect(!Speaker.isRemoteLabel("them"))
+        #expect(!Speaker.isRemoteLabel("Sam"))
     }
 }

@@ -64,6 +64,17 @@ enum Speaker: Sendable, Equatable, Hashable {
             }
         }
     }
+
+    /// Whether a written label denotes a diarized remote speaker ("S1", "S2"…).
+    ///
+    /// Agrees with `init(label:)` by construction. The coordinator used to test
+    /// this inline as `hasPrefix("S") && dropFirst().allSatisfy(\.isNumber)`,
+    /// which accepts a bare "S" — `allSatisfy` is true on the empty collection —
+    /// while `init(label:)` maps "S" to `.them`.
+    static func isRemoteLabel(_ label: String) -> Bool {
+        if case .remote = Speaker(label: label) { return true }
+        return false
+    }
 }
 
 /// A speech-to-text engine Plume can run locally. Engines are prepared lazily

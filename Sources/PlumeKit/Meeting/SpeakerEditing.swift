@@ -102,10 +102,12 @@ enum SpeakerEditing {
         if let frontmatter {
             var pairs = MeetingDocument.frontmatter(in: updated)
             frontmatter(&pairs)
-            if let end = updated.range(of: "\n---\n") {
-                updated = MeetingDocument.renderFrontmatter(pairs)
-                    + String(updated[end.upperBound...])
-            }
+            // Throws rather than skipping the block, so a document we cannot
+            // fully update is left alone entirely: writing the renamed
+            // transcript while dropping the speaker map would leave the two
+            // disagreeing about who said what, which is worse than failing.
+            updated = try MeetingDocument.replacingFrontmatter(
+                pairs, in: updated, path: meetingURL.lastPathComponent)
         }
         try MeetingDocument.write(updated, to: meetingURL)
     }

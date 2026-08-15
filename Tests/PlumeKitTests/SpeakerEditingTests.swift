@@ -110,6 +110,32 @@ struct SpeakerEditingTests {
         #expect(MeetingDocument.frontmatter(in: updated)
             .first(where: { $0.0 == "speaker_S1" })?.1 == "Marie")
     }
+
+    @Test("a document with no frontmatter fails loudly and is left alone")
+    func missingFrontmatterFailsLoudly() throws {
+        // This used to skip the frontmatter block in silence and write the
+        // renamed transcript anyway, leaving the speaker map disagreeing with
+        // the transcript about who said what. Failing whole is the lesser harm,
+        // and invariant 1 says the failure must be loud.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("meeting.md")
+
+        // Regions intact, frontmatter removed by hand.
+        let document = MeetingDocument.render(
+            frontmatter: [], notes: "", summary: "", transcript: transcript)
+        let stripped = document.replacingOccurrences(of: "---\n", with: "")
+        try MeetingDocument.write(stripped, to: url)
+
+        #expect(throws: MeetingDocument.DocumentError.self) {
+            try SpeakerEditing.apply(to: url) {
+                try SpeakerEditing.rename("S1", to: "Marie", in: $0)
+            } frontmatter: { _ in }
+        }
+        #expect(try String(contentsOf: url, encoding: .utf8) == stripped)
+    }
 }
 
 @Suite("Notes store")

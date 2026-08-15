@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// A summary template: a name and the system prompt that produces it.
 struct SummaryTemplate: Sendable, Equatable {
@@ -225,8 +226,56 @@ enum TemplateStore {
         return SummaryTemplate(id: id, name: name, prompt: prompt)
     }
 
+    /// Cached listing, invalidated by the templates' own modification dates.
+    ///
+    /// Same shape as `Config.current()`, and for the same reason — but keyed on
+    /// the *files*, not the directory. A directory's mtime changes only when an
+    /// entry is added or removed, so an in-place edit of an existing prompt
+    /// would never invalidate a directory-keyed cache, and this type's whole
+    /// premise is that editing a template is opening the file.
+    ///
+    /// Worth caching because `all()` is a computed property on three view models
+    /// and is read from inside `MeetingDetailView.body` — which re-evaluates on
+    /// every keystroke in the notes editor. Uncached that was a directory
+    /// listing plus four reads and parses per character, on the main thread.
+    private struct Cache: Sendable {
+        var templates: [SummaryTemplate]?
+        var fingerprint: [String: Date]?
+    }
+    private static let cache = OSAllocatedUnfairLock(initialState: Cache())
+
+    /// Names and modification dates in one directory read. Nil when the folder
+    /// isn't readable, which simply means "don't cache" — `all()` still answers.
+    private static func fingerprint() -> [String: Date]? {
+        guard
+            let urls = try? FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: [.contentModificationDateKey])
+        else { return nil }
+        var out: [String: Date] = [:]
+        for url in urls where url.pathExtension == "md" {
+            out[url.lastPathComponent] =
+                (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? .distantPast
+        }
+        return out
+    }
+
     /// Every template in the folder, sorted by display name.
     static func all() -> [SummaryTemplate] {
+        if let current = fingerprint(),
+            let hit = cache.withLock({ $0.fingerprint == current ? $0.templates : nil })
+        {
+            return hit
+        }
+
+        let parsed = load()
+        // Fingerprint *after* seeding: `load()` may write missing seed files,
+        // and storing the pre-seed fingerprint would miss on every call.
+        cache.withLock { $0 = Cache(templates: parsed, fingerprint: fingerprint()) }
+        return parsed
+    }
+
+    private static func load() -> [SummaryTemplate] {
         try? seedIfNeeded()
         guard
             let files = try? FileManager.default.contentsOfDirectory(

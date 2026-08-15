@@ -342,13 +342,39 @@ comment that would explain why it is fine.
 Four stages, each independently shippable and test-green. Stage 0 is worth doing whether or not the
 rest happens.
 
-### Stage 0 — Correctness, no restructuring
+### Stage 0 — Correctness, no restructuring — **done 2026-08-16**
 
-1. **P2** — make the model late-bound in `OllamaClient` (below). One file, no call-site changes.
-2. **P7** — route `updateRegion` failures into `detailError` instead of `try?`. Two call sites, and
-   they collapse into one after Stage 1.
+1. **P2** — resolve the model per *summarize* rather than per launch (§4.1). Done: `SummaryEngine`
+   holds `injected: OllamaClient?` and builds a client in `summarize()`, threaded through
+   `generate` / `mapReduce` / `stream` / `stampFrontmatter`. `OllamaClient` untouched.
+2. **P7** — route `updateRegion` failures into the error field instead of `try?`. Done at both call
+   sites; they collapse into one after Stage 1. History additionally guards on `meeting.md`
+   existing, which the panel gets free from `transcriptReady` — an untranscribed meeting is listed
+   and has no document yet. Neither site *clears* the error on success: the same field carries
+   summarize failures.
 
-### Stage 1 — Extract the shared meeting behaviour (P1)
+The §5 test for P2 was deliberately skipped — it needs two different config values across one
+object's lifetime and `Config.path` is a fixed global, so the test would write the developer's real
+`config.json`. Blocked on a test-injectable config path; noted in PROGRESS.md.
+
+Scope review of the rest of this document — which items are worth doing and which are not — is in
+PROGRESS.md under "Refactor scope". In short: P3 and P8 are not recommended as proposed.
+
+### Stage 1 — Extract the shared meeting behaviour (P1) — **done 2026-08-16**
+
+Landed as proposed: `MeetingContent`, `NotesAutosave`, and a widened `MeetingDetailModel` with
+`runSummarize` / `reloadContent` / `applySpeakerEdit`. The panel lost ~90 lines, history ~60. The
+deliberate behaviour change was taken: a failed regenerate now reloads from disk in *both*
+surfaces. All three constraints below were checked and hold — `flushNotes()` still runs before
+`session` is reassigned, `openInEditor`/`revealInFinder` still take a URL, `initialTab` is still
+per surface and nothing in the shared extension touches it on selection change.
+
+One thing the proposal didn't anticipate: `MeetingDetailModel` had to gain `Sendable` (free for
+two `@MainActor` classes) because the extension hands the engine a `@Sendable` progress closure,
+and that closure captures the model as a **named** weak binding — a nested `[weak self]` inside
+the enclosing `Task` captures the outer closure's mutable `self`, which strict concurrency
+rejects.
+
 
 Not a new god object — three small pieces:
 
@@ -380,14 +406,28 @@ and none is enforced by a test:
 3. **`initialTab` stays per surface, never per meeting** (AGENTS.md §2, PLAN F8a). The protocol keeps
    it as a requirement; the shared extension must not set `detailTab` on selection change.
 
-### Stage 2 — Cheap performance (P4, P5, P10)
+### Stage 2 — Cheap performance (P4, P5, P10) — **P4 done 2026-08-16; P5/P10 deferred**
+
+`TemplateStore.all()` now caches on the file mtimes. P5 and P10 were demoted to "only if the file
+is open anyway" — see PROGRESS.md "Refactor scope".
+
 
 - `TemplateStore`: cache keyed on a directory fingerprint (below). Measured **0.474 ms → 0.056 ms**
   in the steady state, ~8.5×.
 - `MeetingLibrary`: build the ISO formatters once per scan; `subtitle` → `Date.FormatStyle`.
 - `EchoFilter`: tokenise far-end segments once into a parallel array.
 
-### Stage 3 — Structural tidy (P6, P9, P11, P12, P3, P8)
+### Stage 3 — Structural tidy — **P6, P9, P11, P12, P13 done 2026-08-16; P3 and P8 declined**
+
+`MeetingDocument.replacingFrontmatter` is the single splice, and `SpeakerEditing.apply` now
+throws rather than skipping the block — writing a renamed transcript while dropping the speaker
+map would leave the two disagreeing about who said what. `stampFrontmatter` routes through
+`updateFrontmatter` (so it re-reads from disk) and logs rather than throwing, because the summary
+is already written and `state.json` must still reach `summarized`. P9/P13 were fixed by returning
+the session from `summarize()`, which deleted both prefix lookups instead of reconciling them.
+`MeetingAdmin` keeps its one legitimate `prefix(15)` — building the new folder name — so no shared
+constant was introduced.
+
 
 - `MeetingDocument.replacingFrontmatter(_:in:path:)` as the single splice; the other two call it and
   stop failing silently.

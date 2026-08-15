@@ -22,8 +22,13 @@ enum MeetingTab: String, CaseIterable, Identifiable {
 /// summary, speakers, and a regenerate action — so they share one view rather
 /// than two implementations that merely resemble each other. They had already
 /// started to drift (one rendered markdown, the other didn't) before this existed.
+///
+/// `Sendable` because the shared summarize driver below hands a `@Sendable`
+/// progress closure to the engine. Both conformers are `@MainActor` classes and
+/// so satisfy it for free; stating it on the protocol is what lets the extension
+/// capture `Self`.
 @MainActor
-protocol MeetingDetailModel: AnyObject, Observable {
+protocol MeetingDetailModel: AnyObject, Observable, Sendable {
     var detailTab: MeetingTab { get set }
     /// Which tab this surface opens on. The panel is where you *write* a meeting
     /// record, so it starts on Notes; the history window is where you *read* one,
@@ -32,23 +37,114 @@ protocol MeetingDetailModel: AnyObject, Observable {
     /// the list.
     var initialTab: MeetingTab { get }
     var notes: String { get set }
-    var summary: String { get }
     var templateID: String { get set }
     var templates: [SummaryTemplate] { get }
-    var speakerRows: [SpeakerRow] { get }
-    var isGenerating: Bool { get }
-    /// Shown beside the spinner: "Loading the model…", "part 2 of 4…".
-    var progressNote: String { get }
     /// False while a transcript is still being produced.
     var canSummarize: Bool { get }
     /// Why summarizing is unavailable, if it is. Nil when it's available.
     var blockedReason: String? { get }
-    var detailError: String? { get }
+
+    // Settable so the shared driver below can own the summarize path. Both
+    // surfaces ran their own copy of it and had diverged on the failure case.
+    var summary: String { get set }
+    var speakerRows: [SpeakerRow] { get set }
+    var isGenerating: Bool { get set }
+    /// Shown beside the spinner: "Loading the model…", "part 2 of 4…".
+    var progressNote: String { get set }
+    var detailError: String? { get set }
+
+    /// The meeting on screen, whichever surface is showing it.
+    var session: URL? { get }
+    /// Debounced notes must reach disk before the summariser reads the document.
+    func flushNotes()
+    /// Surface-specific epilogue, given the session URL the engine returned —
+    /// which differs from the one passed in when deriving a title renamed the
+    /// folder. The panel retires the meeting to history; the history window
+    /// rebuilds its list around it.
+    func summarizingFinished(session: URL)
 
     func notesEdited()
     func summarize()
     func rename(_ label: String, to name: String)
     func merge(_ source: String, into destination: String)
+}
+
+extension MeetingDetailModel {
+
+    /// The one summarize path.
+    ///
+    /// Both surfaces ran their own copy. They disagreed on failure — the panel
+    /// reloaded the summary from disk, history left the partial stream on
+    /// screen — so the history window could display text that was never written
+    /// to `meeting.md`. The file was right in both cases (invariant 2), but a
+    /// screen disagreeing with the record is the very thing that invariant
+    /// exists to prevent, so the panel's behaviour is the one kept.
+    func runSummarize(engine: SummaryEngine) {
+        guard let session, !isGenerating else { return }
+        flushNotes()
+        detailTab = .summary
+        isGenerating = true
+        detailError = nil
+        summary = ""
+        progressNote = "Loading the model…"
+
+        let template = TemplateStore.template(id: templateID) ?? TemplateStore.default()
+
+        // Bound as a named weak capture rather than `[weak self]`: the engine's
+        // progress callback is `@Sendable` and hops back to the main actor, and
+        // a nested `[weak self]` inside the enclosing Task captures the outer
+        // closure's mutable `self` binding, which strict concurrency rejects.
+        let report: @Sendable (SummaryEngine.Progress) -> Void = { [weak model = self] progress in
+            Task { @MainActor in
+                guard let model else { return }
+                model.summary = progress.partial
+                model.progressNote = progress.windowsTotal > 1
+                    ? "Summarising — part \(progress.windowsDone + 1) of \(progress.windowsTotal)…"
+                    : "Summarising…"
+            }
+        }
+
+        Task { [weak self] in
+            do {
+                let final = try await engine.summarize(
+                    session: session, template: template, onProgress: report)
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.isGenerating = false
+                    self.summarizingFinished(session: final)
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    self.isGenerating = false
+                    self.detailError = "\(error)"
+                    // The previous summary is untouched on disk (invariant 2).
+                    // Show *that*, not the partial stream nothing wrote.
+                    self.reloadContent()
+                }
+            }
+        }
+    }
+
+    /// Re-read summary and speakers from `meeting.md`.
+    func reloadContent() {
+        guard let session, let loaded = MeetingContent.load(session: session) else { return }
+        summary = loaded.summary
+        speakerRows = loaded.speakerRows
+    }
+
+    /// Shared by both surfaces' speaker rename and merge.
+    func applySpeakerEdit(_ transform: @escaping (String) throws -> String) {
+        guard let session else { return }
+        do {
+            try SpeakerEditing.apply(
+                to: session.appendingPathComponent("meeting.md"), transform)
+            detailError = nil
+            reloadContent()
+        } catch {
+            detailError = "\(error)"
+        }
+    }
 }
 
 /// Whether summarizing can work *before* you press the button.

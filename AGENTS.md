@@ -7,10 +7,65 @@ Forked from [digimata/quill](https://github.com/digimata/quill) (MIT).
 > get them wrong, decisions that look like omissions, and platform traps that fail silently.
 > It is ordered by what a change is likely to cost, not by topic.
 
+**The doc set, and what to read when.** This file is the only required reading; the rest are
+consulted, not read front to back.
+
+| | What it is | Read it when |
+|---|---|---|
+| **AGENTS.md** (here) | How Plume works now, and what will cost you if you get it wrong | Always — it is loaded into every session |
+| **[docs/PROGRESS.md](docs/PROGRESS.md)** | The log: current state, next action, decisions with their *why*, and dead ends | Starting a session, or before retrying something that smells previously-tried |
+| **[docs/PLAN.md](docs/PLAN.md)** | Pre-implementation design record. Source of the `F*`/`R*` numbers cited elsewhere | A reference points there. Not orientation material — most of it is now history |
+| **[docs/archive/](docs/archive/)** | Closed work, kept for its reasoning | Almost never |
+
 **Precedence:** the **code** wins over this file (if they disagree, fix the file in the same
-commit). This file wins over **[docs/PLAN.md](docs/PLAN.md)**, which is a pre-implementation
-design record — read it for *why*, not for *what is*.
-**[docs/PROGRESS.md](docs/PROGRESS.md)** is the log: state, next action, and dead ends.
+commit); this file wins over PLAN.md, which is *why*, not *what is*.
+
+## 0. How Plume is put together
+
+One SwiftPM package. `Sources/PlumeKit/` holds everything (`Audio`, `Transcription`, `Meeting`,
+`Summary`, `UI`, plus `App`/`AppState`/`Config`/`Doctor` at the root); `Sources/plume/main.swift`
+is a five-line shim so the test target can `@testable import` without depending on an `@main`
+target.
+
+```
+menubar toggle
+ └─ AppController.startSession → RecordingSession
+     ├─ MicRecorder          → .plume/mic.caf      (AVAudioEngine tap, AAC mono)
+     └─ SystemAudioRecorder  → .plume/system.caf   (CoreAudio process tap)
+     └─ stop → meta.json (+ per-track start offsets) → state.json: recorded
+
+TranscriptionCoordinator (actor, serial; .plume/state.json IS the queue)
+ ├─ ParakeetEngine.transcribe(mic)     → speaker = me
+ ├─ ParakeetEngine.transcribe(system)
+ │   └─ OfflineDiarizer.diarize → SpeakerAttribution (per-word overlap, re-segmented on change)
+ ├─ shift each track by its offset onto one clock
+ ├─ EchoFilter.dropEchoes → Transcript.sorted (deterministic 4-level tie-break)
+ ├─ MeetingDocument.render → meeting.md (notes / summary / transcript regions)
+ ├─ delete audio                      ← irreversible, by design
+ └─ state.json: transcribed
+
+[human trigger only — see §2]
+SummaryEngine (actor)
+ ├─ Prompt.single → OllamaClient.stream, falling back to map-reduce on contextExceeded
+ ├─ buffer fully, then MeetingDocument.updateRegion(.summary)
+ ├─ MeetingIdentityDeriver → title applied; speaker names → proposals.json (await a click)
+ ├─ MeetingAdmin.renameFolder → returns the new session URL
+ └─ state.json: summarized
+```
+
+**The folder is the database.** No index. `.plume/state.json` is simultaneously the durable stage
+machine and the work queue, so `resumePending()` at launch just rescans; `MeetingLibrary` lists
+history by reading the first 4 KB of each `meeting.md`.
+
+**Three isolation domains, chosen per layer**: `@MainActor` for `AppController`, `AppState`,
+`RecordingSession` and all UI; actors for `TranscriptionCoordinator`, `ParakeetEngine`,
+`OfflineDiarizer` and `SummaryEngine` (they own non-`Sendable` model managers and serialise long
+work); `OSAllocatedUnfairLock` in `MicRecorder`/`SystemAudioRecorder`, where callbacks are
+real-time and an actor hop is not available.
+
+**Two UI surfaces over one object.** `MeetingPanelController` drives three `NSWindow`s (pill,
+recording, wrap-up); `HistoryModel` drives the Meetings window. Both conform to
+`MeetingDetailModel` and share the view *and* the summarize path — see §4.
 
 ## 1. Invariants — breaking these destroys something unrecoverable
 
@@ -68,7 +123,7 @@ hotkey, Phase 7 Ask — which will be a third tab in `MeetingDetailView`, not a 
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 114 tests
+swift build && swift test                      # library + 122 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
 ./.build/debug/plume doctor                    # checks — but see below
 ./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
@@ -145,11 +200,34 @@ rejects them. The symptom points somewhere else entirely: text selects fine, it 
 copies, in every window. `AppMenu.install()` creates an invisible menu whose only job is that
 routing; items use standard selectors with `target: nil` so they walk to the focused text view.
 
-**The wrap-up panel and the history window share `MeetingDetailView`.** They are the same
-object at different ages — notes, summary, speakers, regenerate — so changes belong in the
-shared view, not in one surface. They drifted within a single phase before it existed (only one
-rendered markdown, only one had notes). Each supplies its own chrome and its own `initialTab`:
-the panel opens on Notes because you are writing, history on Summary because you are reading.
+**The wrap-up panel and the history window share `MeetingDetailView` *and* the summarize/reload
+path.** They are the same object at different ages — notes, summary, speakers, regenerate — so
+changes belong in the shared code, not in one surface. They drifted within a single phase before
+the view existed (only one rendered markdown, only one had notes), and drifted again in the model
+until 2026-08-16 (on a failed regenerate, only one reloaded from disk — the other left streamed
+text on screen that `meeting.md` never contained). The shared parts are now `MeetingDetailView`,
+`MeetingDetailModel`'s extension (`runSummarize` / `reloadContent` / `applySpeakerEdit`),
+`MeetingContent` (loading) and `NotesAutosave` (the debounce). What stays per surface: chrome,
+`initialTab` (panel opens on Notes because you are writing, history on Summary because you are
+reading), and `summarizingFinished(session:)` — the panel retires the meeting to history, history
+rebuilds its list.
+
+**`SummaryEngine.summarize` returns the session URL, and callers must use it.** Deriving a title
+renames the folder. Both surfaces used to find the new one by matching the `yyyy-MM-dd-HHmm`
+prefix, which two meetings started in the same minute share — `RecordingSession` disambiguates
+with a `-2` suffix and `renameFolder` drops it — so a surface could silently follow the *other*
+meeting. Back-to-back calls are a designed-for case, not an edge one.
+
+**`SummaryEngine` holds no `OllamaClient`.** It is built at launch, so a stored client pins the
+model configured then, while Settings, the readiness caption and `doctor` all report the current
+one — and the wrong name gets stamped into `meeting.md` as provenance. One client per
+`summarize()`: current on each run, and *fixed* between `stream()` and `unload()`, or a
+mid-generation config change would evict a model Plume never loaded.
+
+**`TemplateStore.all()` caches on the templates' own mtimes, not the directory's.** It is read
+from inside `MeetingDetailView.body`, i.e. once per keystroke. A directory's mtime changes only
+when an entry is added or removed, so a directory-keyed cache would ignore a hand-edited prompt —
+and "editing a template is opening the file" is the whole premise of the folder.
 
 **Swift 6 strict concurrency is on.** `OfflineDiarizerManager` isn't `Sendable` and needs an
 owning actor. Don't reach for `@unchecked Sendable`: use a lock. The three that exist each carry
@@ -163,9 +241,7 @@ gone gets re-transcribed into nothing.
 
 ## 5. Working habits
 
-`Sources/PlumeKit/` holds everything (`Audio`, `Transcription`, `Meeting`, `Summary`, `UI`);
-`Sources/plume/main.swift` is a one-line shim so tests can `@testable import`. `spikes/` is
-committed on purpose — each has a RESULTS.md and re-runs.
+`spikes/` is committed on purpose — each has a RESULTS.md and re-runs. Layout is in §0.
 
 `upstream` points at digimata/quill; we cherry-pick from its open PRs and **attribute them in
 the commit message**. Upstream merges almost nothing, so don't expect to pull. Note the PRs are
@@ -179,7 +255,7 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-15, after Phase 6 and its second feedback round.*
+*Last reviewed against the code: 2026-08-16, after the architecture-review pass.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass
 does not happen, and a silently wrong constraint is worse than a missing one — the next agent
@@ -189,7 +265,8 @@ will trust it.
 reading it?* Irreversible damage and reversed decisions always qualify. A platform trap qualifies
 while it stays invisible — once a test or an obvious code comment enforces it, cut it here and
 keep the pointer. Design rationale belongs in PLAN.md; status and dead ends in PROGRESS.md;
-anything derivable from reading the code belongs nowhere.
+anything derivable from reading the code belongs nowhere. §0 is the exception that proves it:
+the shape *is* derivable, but only by reading a dozen files, and every session needs it.
 
 Bump the date when you edit. If it is far behind HEAD, spend five minutes checking sections 1
 and 4 against reality before trusting them.

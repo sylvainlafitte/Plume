@@ -21,7 +21,7 @@ final class MeetingPanelController: MeetingDetailModel {
     private let panel = MeetingPanel()
     private let engine = SummaryEngine()
 
-    private(set) var session: URL?
+    var session: URL?
     private var startedAt: Date?
 
     // Observed by the views.
@@ -33,7 +33,7 @@ final class MeetingPanelController: MeetingDetailModel {
     var isRecording = false
     var isGenerating = false
     var transcriptReady = false
-    var error: String?
+    var detailError: String?
     var progressNote = "Summarising…"
     var speakerRows: [SpeakerRow] = []
 
@@ -43,7 +43,6 @@ final class MeetingPanelController: MeetingDetailModel {
     var initialTab: MeetingTab { .notes }
     var canSummarize: Bool { transcriptReady }
     var blockedReason: String? { transcriptReady ? nil : "transcribing…" }
-    var detailError: String? { error }
     func notesEdited() { scheduleSave() }
     var title: String { session?.lastPathComponent ?? "Meeting" }
     /// True while a meeting is still in flight — recording, or stopped but not
@@ -52,7 +51,11 @@ final class MeetingPanelController: MeetingDetailModel {
     private var isFinished = false
 
     private var pollTimer: Timer?
-    private var saveTimer: Timer?
+    // Ignored by observation: a timer is not view state, and `lazy` and the
+    // @Observable macro cannot coexist on a tracked property.
+    @ObservationIgnored private lazy var autosave = NotesAutosave {
+        [weak self] in self?.writeNotes()
+    }
     /// What the panel returns to when expanded from the pill.
     private var expandedMode: MeetingPanel.Mode = .recording
 
@@ -72,7 +75,7 @@ final class MeetingPanelController: MeetingDetailModel {
         startedAt = date
         notes = ""
         summary = ""
-        error = nil
+        detailError = nil
         isRecording = true
         isFinished = false
         transcriptReady = false
@@ -149,19 +152,14 @@ final class MeetingPanelController: MeetingDetailModel {
         scheduleSave()
     }
 
-    /// Debounced whole-file save. Notes are free text, so every keystroke would
-    /// otherwise rewrite the file; a short delay keeps that to a trickle while
-    /// risking at most a second or two of typing on a crash.
-    func scheduleSave() {
-        saveTimer?.invalidate()
-        saveTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.flushNotes() }
-        }
-    }
+    func scheduleSave() { autosave.schedule() }
 
-    private func flushNotes() {
-        saveTimer?.invalidate()
-        saveTimer = nil
+    /// Runs before `session` is reassigned in `startedRecording` — a second
+    /// meeting starting while the first is in wrap-up must not write the first
+    /// meeting's pending notes into the second's folder (PLAN R11).
+    func flushNotes() { autosave.flush() }
+
+    private func writeNotes() {
         guard let session else { return }
         try? NotesStore.write(notes, to: session)
         syncNotesRegion()
@@ -169,10 +167,21 @@ final class MeetingPanelController: MeetingDetailModel {
 
     /// Keep meeting.md's Notes region in step once it exists, so a summary
     /// never reads a stale copy.
+    ///
+    /// The failure is surfaced rather than dropped: `updateRegion` throws only
+    /// when a marker is missing, which means the user's own edit has made the
+    /// file unwritable by us (invariant 1). Silently continuing would keep
+    /// accepting notes that never reach the document the summariser reads.
     private func syncNotesRegion() {
         guard let session, transcriptReady else { return }
-        try? MeetingDocument.updateRegion(
-            .notes, at: session.appendingPathComponent("meeting.md"), to: notes)
+        do {
+            try MeetingDocument.updateRegion(
+                .notes, at: session.appendingPathComponent("meeting.md"), to: notes)
+        } catch {
+            // Set, never cleared here: the same field carries summarize errors,
+            // and a later keystroke succeeding says nothing about those.
+            self.detailError = "\(error)"
+        }
     }
 
     // MARK: - Transcript arrival
@@ -188,9 +197,7 @@ final class MeetingPanelController: MeetingDetailModel {
     private func checkForTranscript() {
         guard let session else { return }
         let url = session.appendingPathComponent("meeting.md")
-        guard FileManager.default.fileExists(atPath: url.path),
-            let document = try? String(contentsOf: url, encoding: .utf8)
-        else { return }
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
 
         pollTimer?.invalidate()
         pollTimer = nil
@@ -198,114 +205,34 @@ final class MeetingPanelController: MeetingDetailModel {
 
         // Notes typed during wrap-up are newer than what transcription wrote.
         syncNotesRegion()
-
-        if let transcript = try? MeetingDocument.read(.transcript, from: document) {
-            let proposals = MeetingIdentity.load(from: session)?.speakers ?? []
-            speakerRows = SpeakerEditing.speakers(in: transcript)
-                .filter { $0.label != Speaker.me.label }
-                .map { entry in
-                    SpeakerRow(
-                        label: entry.label,
-                        samples: entry.samples,
-                        proposal: proposals.first { $0.label == entry.label })
-                }
-        }
-        if let existing = try? MeetingDocument.read(.summary, from: document),
-            existing != "*pending*"
-        {
-            summary = existing
-        }
+        reloadContent()
     }
 
     // MARK: - Summarize
 
-    func summarize() {
-        guard let session, !isGenerating else { return }
-        // Debounced edits must reach disk before the engine reads them.
-        flushNotes()
-        detailTab = .summary
-        isGenerating = true
+    func summarize() { runSummarize(engine: engine) }
 
-        error = nil
-        summary = ""
-        progressNote = "Loading the model…"
-
-        let template = TemplateStore.template(id: templateID) ?? TemplateStore.default()
-        Task { [engine] in
-            do {
-                try await engine.summarize(session: session, template: template) { progress in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        self.summary = progress.partial
-                        self.progressNote = progress.windowsTotal > 1
-                            ? "Summarising — part \(progress.windowsDone + 1) of \(progress.windowsTotal)…"
-                            : "Summarising…"
-                    }
-                }
-                await MainActor.run { self.finishSummarize(session: session) }
-            } catch {
-                await MainActor.run {
-                    self.isGenerating = false
-                    self.error = "\(error)"
-                    // The previous summary is untouched on disk (invariant 2);
-                    // reload so the panel shows what is actually there.
-                    self.reloadSummary()
-                }
-            }
-        }
-    }
-
-    private func finishSummarize(session: URL) {
-        isGenerating = false
+    /// - Parameter session: the URL the engine returned, which already accounts
+    ///   for the folder being renamed once a title exists. This used to be found
+    ///   by scanning the parent for the `yyyy-MM-dd-HHmm` prefix — which two
+    ///   meetings started in the same minute share, so the panel could adopt the
+    ///   *other* meeting's folder.
+    func summarizingFinished(session: URL) {
+        self.session = session
         isFinished = true
         onSessionFinished?()
-        // Summarizing renames the folder once a title exists.
-        if !FileManager.default.fileExists(atPath: session.path),
-            let renamed = locateRenamed(from: session)
-        {
-            self.session = renamed
-        }
-        reloadSummary()
+        reloadContent()
         checkForTranscript()
-    }
-
-    private func locateRenamed(from old: URL) -> URL? {
-        let parent = old.deletingLastPathComponent()
-        let stamp = old.lastPathComponent.prefix(15)
-        return (try? FileManager.default.contentsOfDirectory(
-            at: parent, includingPropertiesForKeys: nil))?
-            .first { $0.lastPathComponent.hasPrefix(stamp) }
-    }
-
-    private func reloadSummary() {
-        guard let session,
-            let document = try? String(
-                contentsOf: session.appendingPathComponent("meeting.md"), encoding: .utf8),
-            let existing = try? MeetingDocument.read(.summary, from: document)
-        else { return }
-        summary = existing == "*pending*" ? "" : existing
     }
 
     // MARK: - Speakers
 
     func rename(_ label: String, to name: String) {
-        edit { try SpeakerEditing.rename(label, to: name, in: $0) }
+        applySpeakerEdit { try SpeakerEditing.rename(label, to: name, in: $0) }
     }
 
     func merge(_ source: String, into destination: String) {
-        edit { try SpeakerEditing.merge(source, into: destination, in: $0) }
-    }
-
-    private func edit(_ transform: @escaping (String) throws -> String) {
-        guard let session else { return }
-        do {
-            try SpeakerEditing.apply(
-                to: session.appendingPathComponent("meeting.md"), transform)
-            error = nil
-            checkForTranscript()
-        } catch {
-            self.error = "\(error)"
-        }
+        applySpeakerEdit { try SpeakerEditing.merge(source, into: destination, in: $0) }
     }
 
     func openInEditor() {

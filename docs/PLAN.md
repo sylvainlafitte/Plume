@@ -1,9 +1,16 @@
 # Plume — local meeting transcription & AI summaries
 
-> **Status: design record.** This was written before implementation and captures *why* each
-> decision was made. As phases land it becomes history rather than instruction — for how the
-> code actually works today, [AGENTS.md](../AGENTS.md) is the source of truth and wins any
-> disagreement. Progress and dead ends live in [PROGRESS.md](PROGRESS.md).
+> **Status: design record, and no longer orientation material.** Written before implementation,
+> phases 1–6 built. Read it when a reference points here — it is the source of the `F*` finding
+> and `R*` risk numbers cited from AGENTS.md and PROGRESS.md — not to learn how Plume works.
+> [AGENTS.md](../AGENTS.md) is the source of truth for that and wins any disagreement;
+> [PROGRESS.md](PROGRESS.md) has state, decisions and dead ends.
+>
+> **Where it is stale, it says so inline** rather than being edited into agreement: several
+> findings carry a "revised/reversed in Phase N" note, and B2's `[verified]` tag turned out to be
+> a citation rather than a measurement. Treat an unannotated claim here as *what we believed
+> before building*, not as fact. Still live, and not yet delivered: R3 (the held-aside corpus),
+> R4 (recording disclosure), R7 (first-run model download), R8 (temp-dir sweep), Phase 7.
 
 ## Context
 
