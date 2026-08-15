@@ -16,7 +16,17 @@ cd "$(dirname "$0")"
 
 CONFIG="${1:-debug}"
 ACTION="${2:-}"
-APP="Plume.app"
+
+# Assemble and sign OUTSIDE the project directory.
+#
+# This repo lives under ~/Documents, which iCloud's file provider stamps with
+# com.apple.FinderInfo and com.apple.fileprovider.* — exactly the attributes
+# codesign refuses as "resource fork, Finder information, or similar detritus".
+# Stripping them loses a race with the provider, which re-applies them between
+# the strip and the signature. Staging in /tmp sidesteps the whole class.
+STAGE="$(mktemp -d)/Plume.app"
+APP="$STAGE"
+trap 'rm -rf "$(dirname "$STAGE")"' EXIT
 
 echo "▸ building ($CONFIG)"
 swift build -c "$CONFIG"
@@ -28,10 +38,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 cp "$BIN" "$APP/Contents/MacOS/plume"
 
-# SwiftPM's build directory carries extended attributes (com.apple.provenance and
-# friends) that codesign rejects as "resource fork, Finder information, or similar
-# detritus". Learned the hard way in Spike A.
-xattr -cr "$APP"
+# com.apple.provenance rides along on everything macOS 14+ writes and is NOT
+# removable (xattr -c reports success and leaves it). codesign tolerates it.
+xattr -cr "$APP" 2>/dev/null || true
 
 # Prefer a real signing identity over ad-hoc.
 #
@@ -55,7 +64,7 @@ fi
 codesign --force --sign "$PLUME_SIGN_ID" --timestamp=none "$APP"
 codesign --verify --verbose=2 "$APP" 2>&1 | sed 's/^/    /'
 
-echo "▸ built $APP"
+echo "▸ built $(basename "$APP")"
 
 if [ "$ACTION" = "run" ]; then
     echo "▸ installing to /Applications and launching"
@@ -66,25 +75,24 @@ if [ "$ACTION" = "run" ]; then
         pgrep -x plume >/dev/null || break
         sleep 0.25
     done
-    rm -rf "/Applications/$APP"
+    rm -rf "/Applications/Plume.app"
     cp -R "$APP" /Applications/
     # LaunchServices caches the old bundle briefly after it is replaced; opening
     # immediately can fail with -600. Register the new one, then retry.
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
-        -f "/Applications/$APP" 2>/dev/null || true
+        -f "/Applications/Plume.app" 2>/dev/null || true
     for attempt in 1 2 3; do
-        open "/Applications/$APP" 2>/dev/null && break
+        open "/Applications/Plume.app" 2>/dev/null && break
         sleep 1
     done
     echo "  running — look for the feather in the menu bar"
 else
     cat <<EOF
 
-Launch it through LaunchServices, never from the shell:
+Signed bundle staged at:
+    $APP
 
-    open $APP
-
-Or install and run in one step:
+Install and launch it in one step (staging is discarded on exit):
 
     ./build-app.sh release run
 EOF

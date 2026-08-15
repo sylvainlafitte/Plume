@@ -12,18 +12,16 @@ import Foundation
 /// previous append-only journal. Writes are debounced by the caller, so a crash
 /// costs at most the last second or two of typing — acceptable for a notes field
 /// that no longer fights you when you edit it.
+///
+/// There is deliberately no during/after-the-call divider. It existed when every
+/// line carried an automatic timestamp and the boundary was therefore visible
+/// structure; with free-text notes it was structure leaking into the user's own
+/// words for no benefit the model actually needed.
 enum NotesStore {
 
     static func url(in session: URL) -> URL {
         SessionState.directory(in: session).appendingPathComponent("notes.md")
     }
-
-    /// Separates in-the-moment capture from wrap-up, so the summarizer can read
-    /// what follows as conclusions.
-    ///
-    /// Blank lines on both sides and an explicit rule: without them it rendered
-    /// flush against the preceding note and read as part of it.
-    static let wrapUpMarker = "*— after the call —*"
 
     static func read(from session: URL) -> String {
         (try? String(contentsOf: url(in: session), encoding: .utf8)) ?? ""
@@ -34,18 +32,6 @@ enum NotesStore {
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try contents.write(to: url, atomically: true, encoding: .utf8)
-    }
-
-    /// Append the wrap-up divider, separated by blank lines. No-op if the notes
-    /// are empty (nothing to divide) or it is already there.
-    static func markWrapUp(in session: URL) throws -> String {
-        let existing = read(from: session)
-        let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains(wrapUpMarker) else { return existing }
-
-        let updated = trimmed + "\n\n" + wrapUpMarker + "\n\n"
-        try write(updated, to: session)
-        return updated
     }
 
     /// `[12:04] ` — inserted on request, never automatically.

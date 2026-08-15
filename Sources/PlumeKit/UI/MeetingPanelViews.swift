@@ -1,28 +1,60 @@
 import SwiftUI
 
-/// Collapsed state: a small floating pill. Click to expand.
+/// Window controls, top-left, in macOS order: close then minimise.
 ///
-/// Exists because "hide entirely" was the wrong idiom — an eye-slash icon that
-/// made the panel vanish with no obvious way back. A pill keeps a visible,
-/// clickable handle while giving the screen back.
-struct MeetingPillView: View {
-    let isRecording: Bool
-    let elapsed: String
-    let onExpand: () -> Void
+/// Custom rather than real traffic lights — those need a visible titlebar, and
+/// changing the style mask afterwards is the AppKit trap Spike B found, where
+/// typing silently stops working. Same position and same order, so the mental
+/// model carries over.
+private struct PanelControls: View {
+    let onClose: () -> Void
+    let onCollapse: () -> Void
 
     var body: some View {
-        Button(action: onExpand) {
-            HStack(spacing: 6) {
-                if isRecording {
-                    Circle().fill(.red).frame(width: 7, height: 7)
-                    Text(elapsed).font(.system(.caption, design: .monospaced))
+        HStack(spacing: 6) {
+            Button(action: onClose) {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Close the panel (⌘W) — reopen from the menu bar")
+            .keyboardShortcut("w", modifiers: .command)
+
+            Button(action: onCollapse) {
+                Image(systemName: "minus.circle.fill")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Collapse to a small pill (⌘M)")
+            .keyboardShortcut("m", modifiers: .command)
+        }
+        .font(.system(size: 12))
+    }
+}
+
+/// Collapsed state: a small floating pill. Click to expand.
+///
+/// Reads `controller` directly rather than taking values as parameters, so a
+/// ticking clock updates only this label instead of rebuilding the whole tree —
+/// which is what made it visibly flash once a second.
+struct MeetingPillView: View {
+    let controller: MeetingPanelController
+
+    var body: some View {
+        Button {
+            controller.expand()
+        } label: {
+            HStack(spacing: 5) {
+                if controller.isRecording {
+                    Circle().fill(.red).frame(width: 6, height: 6)
+                    Text(controller.elapsed)
+                        .font(.system(size: 11, design: .monospaced))
+                        .monospacedDigit()
                 } else {
-                    Image(systemName: "text.append").font(.caption)
-                    Text("Notes").font(.caption)
+                    Image(systemName: "text.append").font(.system(size: 10))
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
         }
@@ -32,43 +64,24 @@ struct MeetingPillView: View {
     }
 }
 
-/// Small control shared by the expanded states.
-private struct CollapseButton: View {
-    let onCollapse: () -> Void
-    var body: some View {
-        Button(action: onCollapse) {
-            Image(systemName: "minus.circle.fill")
-                .foregroundStyle(.secondary)
-        }
-        .buttonStyle(.plain)
-        .help("Collapse to a small pill (⌘M)")
-        .keyboardShortcut("m", modifiers: .command)
-    }
-}
-
-/// Live notes during the call.
-///
-/// A full editing surface rather than a one-line commit field: notes are
-/// written and *rewritten* as a meeting goes, and a field that only appends
-/// forces you to get each line right first time.
+/// Live notes during the call — a full editing surface, not a commit field.
 struct RecordingStripView: View {
-    let elapsed: String
-    @Binding var notes: String
-    let onStamp: () -> Void
-    let onStop: () -> Void
-    let onCollapse: () -> Void
+    @Bindable var controller: MeetingPanelController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Circle().fill(.red).frame(width: 8, height: 8)
-                Text(elapsed).font(.system(.body, design: .monospaced)).bold()
+                PanelControls(
+                    onClose: { controller.close() },
+                    onCollapse: { controller.collapse() })
                 Spacer()
-                Button("Stop", action: onStop)
-                CollapseButton(onCollapse: onCollapse)
+                Circle().fill(.red).frame(width: 8, height: 8)
+                Text(controller.elapsed)
+                    .font(.system(.body, design: .monospaced)).monospacedDigit().bold()
+                Button("Stop") { controller.requestStop() }
             }
 
-            TextEditor(text: $notes)
+            TextEditor(text: $controller.notes)
                 .font(.body)
                 .scrollContentBackground(.hidden)
                 .background(.quaternary.opacity(0.4))
@@ -76,7 +89,7 @@ struct RecordingStripView: View {
 
             HStack {
                 Button {
-                    onStamp()
+                    controller.insertStamp()
                 } label: {
                     Label("Timestamp", systemImage: "clock")
                         .labelStyle(.titleAndIcon).font(.caption)
@@ -101,46 +114,32 @@ struct WrapUpView: View {
         var id: String { rawValue }
     }
 
-    @Binding var tab: Tab
-    @Binding var notes: String
-
-    let title: String
-    let transcriptReady: Bool
-    let summary: String
-    let isGenerating: Bool
-    let templates: [SummaryTemplate]
-    @Binding var templateID: String
-    let speakers: [SpeakerRow]
-    let error: String?
-
-    let onSummarize: () -> Void
-    let onOpenInEditor: () -> Void
-    let onCollapse: () -> Void
-    let onRename: (String, String) -> Void
-    let onMerge: (String, String) -> Void
+    @Bindable var controller: MeetingPanelController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(title).font(.headline).lineLimit(1)
+            HStack(spacing: 8) {
+                PanelControls(
+                    onClose: { controller.close() },
+                    onCollapse: { controller.collapse() })
+                Text(controller.title).font(.headline).lineLimit(1)
                 Spacer()
-                Button("Open", action: onOpenInEditor)
+                Button("Open") { controller.openInEditor() }
                     .help("Open meeting.md in your markdown editor")
-                CollapseButton(onCollapse: onCollapse)
             }
 
-            Picker("", selection: $tab) {
+            Picker("", selection: $controller.tab) {
                 ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            switch tab {
+            switch controller.tab {
             case .notes: notesTab
             case .summary: summaryTab
             }
 
-            if let error {
+            if let error = controller.error {
                 Text(error).font(.caption).foregroundStyle(.red).lineLimit(3)
             }
         }
@@ -150,7 +149,7 @@ struct WrapUpView: View {
 
     private var notesTab: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextEditor(text: $notes)
+            TextEditor(text: $controller.notes)
                 .font(.body)
                 .scrollContentBackground(.hidden)
                 .background(.quaternary.opacity(0.4))
@@ -163,22 +162,24 @@ struct WrapUpView: View {
 
             // The primary action lives here, not on the Summary tab: notes are
             // the input and the summary is the output, so the button belongs
-            // where you finish working. It also means editing notes and
-            // regenerating never requires bouncing between tabs.
+            // where you finish working — and editing then regenerating never
+            // requires bouncing between tabs.
             HStack(spacing: 8) {
-                Picker("", selection: $templateID) {
-                    ForEach(templates, id: \.id) { Text($0.name).tag($0.id) }
+                Picker("", selection: $controller.templateID) {
+                    ForEach(controller.templates, id: \.id) { Text($0.name).tag($0.id) }
                 }
                 .labelsHidden()
                 .frame(maxWidth: 150)
 
-                Button(summary.isEmpty ? "Summarize" : "Regenerate", action: onSummarize)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!transcriptReady || isGenerating)
+                Button(controller.summary.isEmpty ? "Summarize" : "Regenerate") {
+                    controller.summarize()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!controller.transcriptReady || controller.isGenerating)
 
-                if isGenerating {
+                if controller.isGenerating {
                     ProgressView().controlSize(.small)
-                } else if !transcriptReady {
+                } else if !controller.transcriptReady {
                     Text("transcribing…").font(.caption2).foregroundStyle(.secondary)
                 }
             }
@@ -187,20 +188,44 @@ struct WrapUpView: View {
 
     private var summaryTab: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // Generating with nothing streamed yet: the model is loading, which
+            // on a cold start is many seconds. An empty pane reads as failure.
+            if controller.isGenerating && controller.summary.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(controller.progressNote)
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             ScrollView {
-                Text(summary.isEmpty
-                    ? "No summary yet — write your notes, then press Summarize."
-                    : summary)
-                    .font(.callout)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .foregroundStyle(summary.isEmpty ? .secondary : .primary)
+                if !controller.summary.isEmpty {
+                    Text(controller.summary)
+                        .font(.callout)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                } else if !controller.isGenerating {
+                    Text("No summary yet — write your notes, then press Summarize.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .frame(maxHeight: .infinity)
 
-            if !speakers.isEmpty {
+            if controller.isGenerating && !controller.summary.isEmpty {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(controller.progressNote).font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+
+            if !controller.speakerRows.isEmpty {
                 Divider()
-                SpeakerListView(rows: speakers, onRename: onRename, onMerge: onMerge)
+                SpeakerListView(
+                    rows: controller.speakerRows,
+                    onRename: { controller.rename($0, to: $1) },
+                    onMerge: { controller.merge($0, into: $1) })
             }
         }
     }

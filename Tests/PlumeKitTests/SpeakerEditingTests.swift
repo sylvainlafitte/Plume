@@ -139,34 +139,7 @@ struct NotesStoreTests {
             == "a thought\n[1:05] ")
     }
 
-    @Test("the wrap-up divider is separated by blank lines")
-    func wrapUpIsSeparated() throws {
-        // It previously rendered flush against the last note and read as part
-        // of it.
-        let session = tempSession()
-        defer { try? FileManager.default.removeItem(at: session) }
 
-        try NotesStore.write("a thought", to: session)
-        let updated = try NotesStore.markWrapUp(in: session)
-        #expect(updated.contains("a thought\n\n" + NotesStore.wrapUpMarker))
-    }
-
-    @Test("the divider is written once, and never into empty notes")
-    func wrapUpIdempotent() throws {
-        let session = tempSession()
-        defer { try? FileManager.default.removeItem(at: session) }
-
-        // Nothing typed — no boundary worth marking.
-        _ = try NotesStore.markWrapUp(in: session)
-        #expect(NotesStore.read(from: session).isEmpty)
-
-        try NotesStore.write("during", to: session)
-        _ = try NotesStore.markWrapUp(in: session)
-        _ = try NotesStore.markWrapUp(in: session)
-        let occurrences = NotesStore.read(from: session)
-            .components(separatedBy: NotesStore.wrapUpMarker).count - 1
-        #expect(occurrences == 1)
-    }
 
     @Test("notes round-trip as free text, unchanged")
     func freeTextRoundTrip() throws {

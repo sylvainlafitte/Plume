@@ -33,7 +33,7 @@ final class MeetingPanel {
     private var hosting: NSHostingView<AnyView>?
     private(set) var mode: Mode = .recording
 
-    private static let pillSize = NSSize(width: 132, height: 34)
+    private static let pillSize = NSSize(width: 84, height: 26)
     private static let stripSize = NSSize(width: 340, height: 300)
     private static let wrapUpSize = NSSize(width: 430, height: 580)
 
