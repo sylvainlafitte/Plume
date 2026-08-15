@@ -220,11 +220,7 @@ final class MeetingPanelController: MeetingDetailModel {
         flushNotes()
         detailTab = .summary
         isGenerating = true
-        // Re-seat the root view: setting detailTab alone did not move the panel
-        // to the Summary tab in practice, and pressing Summarize and staying put
-        // reads as nothing having happened. Once per summarize, not per tick —
-        // this is not the path that made the pill flash.
-        show(expandedMode)
+
         error = nil
         summary = ""
         progressNote = "Loading the model…"

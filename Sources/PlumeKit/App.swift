@@ -42,6 +42,11 @@ public enum PlumeApp {
         // in Info.plist; both are needed.
         app.setActivationPolicy(.accessory)
 
+        // Standard editing commands (⌘C/⌘V/⌘X/⌘A/⌘Z) route through the main
+        // menu's key equivalents even for a menubar-only app with no visible
+        // menu bar. Without this they beep.
+        AppMenu.install()
+
         let delegate = AppDelegate()
         app.delegate = delegate
         app.run()

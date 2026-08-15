@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Three views of one meeting: the input, the output, and interrogating it.
@@ -117,6 +118,11 @@ struct MeetingDetailView<Model: MeetingDetailModel>: View {
         }
     }
 
+    private func copySummary() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(model.summary, forType: .string)
+    }
+
     private var summaryTab: some View {
         VStack(alignment: .leading, spacing: 10) {
             // Generating with nothing streamed yet: on a cold start the model
@@ -132,6 +138,13 @@ struct MeetingDetailView<Model: MeetingDetailModel>: View {
             ScrollView {
                 if !model.summary.isEmpty {
                     MarkdownText(markdown: model.summary)
+                        // Drag-to-select is per-Text at best inside a rendered
+                        // block layout, and unreliable in a non-activating panel.
+                        // A copy action always works and is what you actually
+                        // want for a summary headed into an email.
+                        .contextMenu {
+                            Button("Copy summary") { copySummary() }
+                        }
                 } else if !model.isGenerating {
                     // The empty state is the instruction. History opens here for
                     // meetings that were never summarized, so it has to say what
@@ -145,6 +158,16 @@ struct MeetingDetailView<Model: MeetingDetailModel>: View {
                 }
             }
             .frame(maxHeight: .infinity)
+
+            if !model.summary.isEmpty && !model.isGenerating {
+                Button {
+                    copySummary()
+                } label: {
+                    Label("Copy summary", systemImage: "doc.on.doc")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+            }
 
             if model.isGenerating && !model.summary.isEmpty {
                 HStack(spacing: 6) {

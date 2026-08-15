@@ -104,9 +104,28 @@ only — Ollama is shared.
 **The panel is two windows and must stay that way.** `.titled` is needed to become key so you
 can type while a call stays frontmost, but it carries an invisible ~28pt titlebar: below that
 height `contentLayoutRect` collapses to **zero** and SwiftUI lays content out below the visible
-window. Hence the 22pt pill is `.borderless`. Also: `hosting.sizingOptions = []`, or SwiftUI's
-intrinsic size snaps the window back after every resize; and never mutate `styleMask` after
-init — typing silently stops working.
+window. Hence the 22pt pill is `.borderless`. Three more rules the panel depends on, none of
+them enforced by anything:
+
+- `isMovableByWindowBackground` must stay **off**. On, any drag on content moves the window,
+  which silently breaks drag-to-select and swallows drags on the pill. Headers and the pill
+  carry an explicit `WindowDragGesture()` instead.
+- The pill is **not a `Button`** — a Button treats a drag as a click, so it expanded whenever
+  you tried to move it. Plain view + drag gesture + tap gesture.
+- The hosting view overrides `acceptsFirstMouse`, and the recording panel calls `makeKey()`
+  *without* `NSApp.activate`. A non-activating panel isn't key until clicked, so otherwise the
+  first click only raises it and the second reaches the field — and `@FocusState` cannot focus
+  anything in a window that isn't key.
+
+Also `hosting.sizingOptions = []`, or SwiftUI's intrinsic size snaps the window back after every
+resize; and never mutate `styleMask` after init — typing silently stops working.
+
+**A menubar-only app still needs a main menu, or ⌘C beeps.** `LSUIElement` means no menu bar
+is drawn, but macOS routes standard editing commands through the **main menu's key
+equivalents** — so with no main menu, ⌘C/⌘V/⌘X/⌘A/⌘Z reach nothing and the responder chain
+rejects them. The symptom points somewhere else entirely: text selects fine, it just never
+copies, in every window. `AppMenu.install()` creates an invisible menu whose only job is that
+routing; items use standard selectors with `target: nil` so they walk to the focused text view.
 
 **The wrap-up panel and the history window share `MeetingDetailView`.** They are the same
 object at different ages — notes, summary, speakers, regenerate — so changes belong in the
@@ -142,7 +161,7 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-15, after Phase 6.*
+*Last reviewed against the code: 2026-08-15, after Phase 6 and its feedback round.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass
 does not happen, and a silently wrong constraint is worse than a missing one — the next agent
