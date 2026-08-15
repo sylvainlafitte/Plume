@@ -33,7 +33,7 @@ final class MeetingPanel {
     private var hosting: NSHostingView<AnyView>?
     private(set) var mode: Mode = .recording
 
-    private static let pillSize = NSSize(width: 84, height: 28)
+    private static let pillSize = NSSize(width: 62, height: 22)
     private static let stripSize = NSSize(width: 340, height: 300)
     private static let wrapUpSize = NSSize(width: 430, height: 580)
 
@@ -65,6 +65,10 @@ final class MeetingPanel {
             frame.size = target
             panel.setFrame(frame, display: true, animate: true)
         }
+
+        // A rectangular window shadow around a capsule reads as a crop; drop it
+        // for the pill and restore it for the expanded states.
+        panel.hasShadow = mode != .pill
 
         panel.orderFrontRegardless()
         // Never grab focus for the pill: it exists to be out of the way.

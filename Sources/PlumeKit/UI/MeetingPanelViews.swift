@@ -44,22 +44,26 @@ struct MeetingPillView: View {
         Button {
             controller.expand()
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: 4) {
                 if controller.isRecording {
-                    Circle().fill(.red).frame(width: 6, height: 6)
+                    Circle().fill(.red).frame(width: 5, height: 5)
                     Text(controller.elapsed)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 10, design: .monospaced))
                         .monospacedDigit()
+                        .fixedSize()
                 } else {
-                    Image(systemName: "text.append").font(.system(size: 10))
+                    Image(systemName: "text.append").font(.system(size: 9))
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .contentShape(Rectangle())
+            // Fill the window exactly. Without this the label's intrinsic height
+            // exceeded the frame and the material was clipped square at the
+            // bottom, so it read as a cut-off rectangle rather than a pill.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .background(.regularMaterial)
+        .background(.regularMaterial, in: Capsule())
+        .clipShape(Capsule())
         .help("Click to expand Plume")
     }
 }
