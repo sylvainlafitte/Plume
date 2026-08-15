@@ -212,7 +212,7 @@ enum SummaryError: Error, CustomStringConvertible, Equatable {
 
     var description: String {
         switch self {
-        case .emptyTranscript: return "no transcript to summarize"
+        case .emptyTranscript: return "no transcript to summarise"
         case .emptyResponse: return "the model returned nothing"
         }
     }

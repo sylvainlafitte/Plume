@@ -74,6 +74,11 @@ enum Config {
     }
 
     /// Whether finished recordings are transcribed automatically. Default on.
+    /// Deliberately **not** in the settings window. Off, a recording stops at
+    /// `recorded` forever: no transcript, no summary, no meeting.md — the whole
+    /// app does nothing, from a toggle that reads like an ordinary preference.
+    /// It survives as a config key because Quill's CLI has a legitimate
+    /// record-only mode; a hand-edit still honours it.
     static func transcriptionEnabled() -> Bool {
         current().transcription?.enabled ?? true
     }

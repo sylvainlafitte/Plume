@@ -62,28 +62,6 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle(
-                    "Echo cancellation on the microphone",
-                    isOn: Binding(
-                        get: { settings.micVoiceProcessing ?? false },
-                        set: { newValue in
-                            settings.micVoiceProcessing = newValue
-                            save { $0.micVoiceProcessing = newValue }
-                        }
-                    )
-                )
-            } footer: {
-                // The trade-off is non-obvious and costs a meeting if wrong, so
-                // it is stated rather than left to the toggle's name.
-                Text(
-                    "Off by default. On headphones there is no echo to cancel, and enabling it "
-                    + "makes macOS treat the session as a call and quieten other audio. Turn it "
-                    + "on when meetings play through speakers."
-                )
-                .font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section {
                 Picker(
                     "Usual meeting size",
                     selection: Binding(
@@ -108,16 +86,6 @@ struct SettingsView: View {
                     }
                 }
 
-                Toggle(
-                    "Remove echo of the other side from my track",
-                    isOn: Binding(
-                        get: { settings.transcriptEchoFilter ?? true },
-                        set: { newValue in
-                            settings.transcriptEchoFilter = newValue
-                            save { $0.transcriptEchoFilter = newValue }
-                        }
-                    )
-                )
             } header: {
                 Text("Transcript")
             } footer: {
@@ -128,25 +96,52 @@ struct SettingsView: View {
                     "Your microphone is always kept separate, so this only tells Plume how many "
                     + "other voices to expect. Guessing too low merges people together; "
                     + "\"Let Plume decide\" can occasionally split one person in two, which you "
-                    + "can merge afterwards.\n\n"
-                    + "Echo removal matters when meetings play through speakers — your mic hears "
-                    + "them and every sentence would otherwise appear twice."
+                    + "can merge afterwards."
                 )
                 .font(.caption).foregroundStyle(.secondary)
             }
 
+            // Two settings, because there are two chances to catch the same
+            // problem and they are not interchangeable: one edits the audio as
+            // it is captured, the other edits the finished transcript. Kept
+            // together so the weaker, always-safe one is chosen first.
             Section {
                 Toggle(
-                    "Transcribe recordings automatically",
+                    "Drop echoed sentences from the transcript",
                     isOn: Binding(
-                        get: { settings.transcription?.enabled ?? true },
+                        get: { settings.transcriptEchoFilter ?? true },
                         set: { newValue in
-                            save { $0.transcription = Settings.Transcription(
-                                enabled: newValue, engine: $0.transcription?.engine) }
-                            settings = Config.current()
+                            settings.transcriptEchoFilter = newValue
+                            save { $0.transcriptEchoFilter = newValue }
                         }
                     )
                 )
+                Toggle(
+                    "Also cancel echo at the microphone while recording",
+                    isOn: Binding(
+                        get: { settings.micVoiceProcessing ?? false },
+                        set: { newValue in
+                            settings.micVoiceProcessing = newValue
+                            save { $0.micVoiceProcessing = newValue }
+                        }
+                    )
+                )
+            } header: {
+                Text("Echo from speakers")
+            } footer: {
+                // The second toggle's cost is non-obvious and is paid on every
+                // recording, so it is stated rather than left to its name.
+                Text(
+                    "When a meeting plays through speakers your microphone hears the other side "
+                    + "too, so every sentence risks appearing twice.\n\n"
+                    + "The first setting is the safe one: it compares the two tracks afterwards "
+                    + "and removes the duplicates, changing nothing about the recording. Leave "
+                    + "it on — on headphones there is nothing to remove.\n\n"
+                    + "The second stops the echo being recorded at all, but macOS then treats "
+                    + "the session as a call and quietens other audio for the whole meeting. "
+                    + "Turn it on only if duplicates still get through."
+                )
+                .font(.caption).foregroundStyle(.secondary)
             }
 
             Section {
@@ -215,9 +210,7 @@ struct SettingsView: View {
                     Button("Run checks…", action: onRunDiagnostics)
                 }
                 LabeledContent("Config file") {
-                    Button("Reveal in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([Config.path])
-                    }
+                    Button("Reveal in Finder", action: revealConfig)
                 }
             } footer: {
                 Text(
@@ -252,6 +245,20 @@ struct SettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         save { $0.recordingsDir = url.path }
         settings = Config.current()
+    }
+
+    /// Reveal the config file, creating it first if it isn't there.
+    ///
+    /// Every setting has a code default and the file is only written when one
+    /// is changed, so on a fresh install there is nothing to reveal — and
+    /// `activateFileViewerSelecting` on a path that doesn't exist does nothing
+    /// at all, with no error. Writing it first is harmless: every field is
+    /// optional, so an untouched config encodes to `{}` and pins nothing.
+    private func revealConfig() {
+        if !FileManager.default.fileExists(atPath: Config.path.path) {
+            save { _ in }
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([Config.path])
     }
 
     private func save(_ mutate: @escaping (inout Settings) -> Void) {

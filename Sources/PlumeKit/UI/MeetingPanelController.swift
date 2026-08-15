@@ -34,7 +34,7 @@ final class MeetingPanelController: MeetingDetailModel {
     var isGenerating = false
     var transcriptReady = false
     var error: String?
-    var progressNote = "Summarizing…"
+    var progressNote = "Summarising…"
     var speakerRows: [SpeakerRow] = []
 
     var templates: [SummaryTemplate] { TemplateStore.all() }
@@ -79,7 +79,12 @@ final class MeetingPanelController: MeetingDetailModel {
         speakerRows = []
         detailTab = initialTab
         expandedMode = .recording
-        show(.recording)
+        // Starts collapsed. Most of a call is spent not writing anything, and
+        // the notes field is one click away — whereas a strip that appears
+        // unbidden over a call has to be dismissed before it earns its place.
+        // Expanding is what `focus()` does, so the menu bar and the pill both
+        // reach the same state.
+        show(.pill)
     }
 
     func tick() {
@@ -233,8 +238,8 @@ final class MeetingPanelController: MeetingDetailModel {
                         guard let self else { return }
                         self.summary = progress.partial
                         self.progressNote = progress.windowsTotal > 1
-                            ? "Summarizing — part \(progress.windowsDone + 1) of \(progress.windowsTotal)…"
-                            : "Summarizing…"
+                            ? "Summarising — part \(progress.windowsDone + 1) of \(progress.windowsTotal)…"
+                            : "Summarising…"
                     }
                 }
                 await MainActor.run { self.finishSummarize(session: session) }

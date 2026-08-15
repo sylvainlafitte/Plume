@@ -51,8 +51,39 @@ protocol MeetingDetailModel: AnyObject, Observable {
     func merge(_ source: String, into destination: String)
 }
 
+/// Whether summarizing can work *before* you press the button.
+///
+/// An unreachable Ollama was previously only discovered afterwards, as a raw
+/// error string — and a cold daemon is a normal first-run state (Ollama.app
+/// starts it lazily), not a fault. Naming the model also answers "which one is
+/// this about to use" without a trip to Settings.
+private enum SummaryBackend: Equatable {
+    case checking
+    case ready(model: String)
+    case missingModel(String)
+    case unreachable
+
+    var caption: String? {
+        switch self {
+        case .checking: nil
+        case .ready(let model): model
+        case .missingModel(let model): "\(model) not installed"
+        case .unreachable: "Ollama isn't running"
+        }
+    }
+
+    /// Only a real problem is worth colour; the model name is just context.
+    var isProblem: Bool {
+        switch self {
+        case .checking, .ready: false
+        case .missingModel, .unreachable: true
+        }
+    }
+}
+
 struct MeetingDetailView<Model: MeetingDetailModel>: View {
     @Bindable var model: Model
+    @State private var backend: SummaryBackend = .checking
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -79,6 +110,18 @@ struct MeetingDetailView<Model: MeetingDetailModel>: View {
             // competing controls when Ask arrives as a third tab.
             summarizeBar
         }
+        // Once per appearance, not per keystroke: this is a precondition check,
+        // and the panel is opened far more often than Ollama changes state.
+        .task { await checkBackend() }
+    }
+
+    private func checkBackend() async {
+        let wanted = Config.summaryModel()
+        guard let installed = try? await OllamaClient().tags() else {
+            backend = .unreachable
+            return
+        }
+        backend = installed.contains(wanted) ? .ready(model: wanted) : .missingModel(wanted)
     }
 
     private var notesTab: some View {
@@ -86,6 +129,11 @@ struct MeetingDetailView<Model: MeetingDetailModel>: View {
             TextEditor(text: $model.notes)
                 .font(.body)
                 .scrollContentBackground(.hidden)
+                // Inside the background, so the inset is padding within the
+                // field rather than a margin around it — a TextEditor otherwise
+                // starts its text hard against the edge.
+                .padding(.horizontal, 6)
+                .padding(.vertical, 5)
                 .background(.quaternary.opacity(0.4))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .onChange(of: model.notes) { _, _ in model.notesEdited() }
@@ -102,15 +150,30 @@ struct MeetingDetailView<Model: MeetingDetailModel>: View {
             }
             .labelsHidden().pickerStyle(.menu).fixedSize()
 
+            // Status sits against the button, not against the picker: it is
+            // about the action, and a caption stranded mid-bar reads as a third
+            // control rather than as a label for the one on its right.
+            Spacer(minLength: 8)
+
+            // Precedence: what's happening now, then what's blocking, then what
+            // this would run against. Only one of the three is ever true.
             if model.isGenerating {
                 ProgressView().controlSize(.small)
             } else if let reason = model.blockedReason {
                 Text(reason).font(.caption2).foregroundStyle(.secondary)
+            } else if let caption = backend.caption {
+                Text(caption)
+                    .font(.caption2)
+                    // Orange was unreadable against the panel's grey. Red has
+                    // the contrast, and these two states do block summarising.
+                    // The model name is context, not information, so it drops
+                    // to tertiary.
+                    .foregroundStyle(backend.isProblem ? AnyShapeStyle(.red) : AnyShapeStyle(.tertiary))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
-            Spacer(minLength: 8)
-
-            Button(model.summary.isEmpty ? "Summarize" : "Regenerate") {
+            Button(model.summary.isEmpty ? "Summarise" : "Regenerate") {
                 model.summarize()
             }
             .buttonStyle(.borderedProminent)
@@ -151,7 +214,7 @@ struct MeetingDetailView<Model: MeetingDetailModel>: View {
                     // to do rather than just report an absence.
                     VStack(alignment: .leading, spacing: 4) {
                         Text("No summary yet.").font(.callout)
-                        Text("Check your notes, pick a template, then press Summarize below.")
+                        Text("Check your notes, pick a template, then press Summarise below.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

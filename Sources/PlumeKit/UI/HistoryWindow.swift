@@ -54,7 +54,7 @@ final class HistoryModel: MeetingDetailModel {
     // reset this, so the tab never jumps as you move down the list.
     var detailTab: MeetingTab = .summary
     var notes: String = ""
-    var progressNote = "Summarizing…"
+    var progressNote = "Summarising…"
 
     var templates: [SummaryTemplate] { TemplateStore.all() }
     // MeetingDetailModel conformance. A past meeting always has a transcript,
@@ -175,8 +175,8 @@ final class HistoryModel: MeetingDetailModel {
                         guard let self else { return }
                         self.summary = progress.partial
                         self.progressNote = progress.windowsTotal > 1
-                            ? "Summarizing — part \(progress.windowsDone + 1) of \(progress.windowsTotal)…"
-                            : "Summarizing…"
+                            ? "Summarising — part \(progress.windowsDone + 1) of \(progress.windowsTotal)…"
+                            : "Summarising…"
                     }
                 }
             } catch {

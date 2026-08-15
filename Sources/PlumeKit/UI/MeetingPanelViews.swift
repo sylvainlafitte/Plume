@@ -97,6 +97,10 @@ struct RecordingStripView: View {
                 .onAppear { notesFocused = true }
                 .font(.body)
                 .scrollContentBackground(.hidden)
+                // Inside the background: padding within the field, not a margin
+                // around it. Matches the wrap-up editor.
+                .padding(.horizontal, 6)
+                .padding(.vertical, 5)
                 .background(.quaternary.opacity(0.4))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 

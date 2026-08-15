@@ -11,6 +11,26 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// Enforces the panel's minimum size during a user drag.
+///
+/// `minSize`/`contentMinSize` are set and are still not honoured here — a
+/// live-resized `NSHostingView` reports its own constraints back to the window
+/// and wins. `windowWillResize` is the one point AppKit asks before committing,
+/// so clamping here holds regardless of what recomputed the limits.
+private final class PanelResizeDelegate: NSObject, NSWindowDelegate {
+    let minSize: NSSize
+
+    init(minSize: NSSize) {
+        self.minSize = minSize
+    }
+
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        NSSize(
+            width: max(frameSize.width, minSize.width),
+            height: max(frameSize.height, minSize.height))
+    }
+}
+
 /// The floating panel: a collapsed pill, a strip during a call, an expanded
 /// wrap-up pane after it.
 ///
@@ -47,11 +67,23 @@ final class MeetingPanel {
     private var mainHosting: NSHostingView<AnyView>?
     private var pill: NSPanel?
     private var pillHosting: NSHostingView<AnyView>?
+    /// Windows hold delegates weakly.
+    private var resizeDelegate: PanelResizeDelegate?
     private(set) var mode: Mode = .recording
 
     private static let pillSize = NSSize(width: 62, height: 22)
-    private static let stripSize = NSSize(width: 340, height: 300)
-    private static let wrapUpSize = NSSize(width: 430, height: 580)
+    /// One size for both expanded modes, and only a starting point — the panel
+    /// is resizable and its frame is autosaved, so this is what you get before
+    /// you drag a corner, not what you are held to.
+    ///
+    /// Recording and wrap-up used to be two fixed sizes (340×300 and 430×580)
+    /// on the assumption that a live call wanted the smaller footprint. Starting
+    /// collapsed made that moot: the panel is only on screen while you are
+    /// deliberately writing in it, and the same notes field is the point in both
+    /// modes. Two sizes then bought nothing and cost a resize on every stop.
+    private static let defaultSize = NSSize(width: 400, height: 480)
+    /// Below this the tabs, summarize bar and speaker list stop coexisting.
+    private static let minSize = NSSize(width: 300, height: 260)
 
     func show(_ mode: Mode, content: some View) {
         self.mode = mode
@@ -70,16 +102,9 @@ final class MeetingPanel {
         // we draw all our own chrome, so there is nothing to leave room for.
         mainHosting?.rootView = AnyView(content.ignoresSafeArea())
 
-        let target = mode == .recording ? Self.stripSize : Self.wrapUpSize
-        if panel.frame.size != target {
-            // Not animated: the content is already the new mode's, so an
-            // animated resize would spend its whole duration drawing the new
-            // content at the old size.
-            var frame = panel.frame
-            frame.origin.y += frame.size.height - target.height
-            frame.size = target
-            panel.setFrame(frame, display: true, animate: false)
-        }
+        // No per-mode resize: both expanded modes share one frame, so switching
+        // from recording to wrap-up only swaps the content. Whatever size you
+        // dragged the panel to is the size it stays.
 
         // Expanding from the pill: keep the same top-right corner.
         if let pill, pill.isVisible {
@@ -114,13 +139,15 @@ final class MeetingPanel {
         let pill = ensurePill()
         pillHosting?.rootView = AnyView(content)
 
-        // Anchor to the expanded panel's top-right so collapsing doesn't jump.
-        if let main, main.isVisible {
-            pill.setFrameOrigin(NSPoint(
-                x: main.frame.maxX - Self.pillSize.width,
-                y: main.frame.maxY - Self.pillSize.height))
-            main.orderOut(nil)
-        }
+        // Anchor to the expanded panel's top-right so collapsing doesn't jump —
+        // and build that panel even when it has never been shown, because a
+        // recording now starts collapsed. Its autosaved frame is where the user
+        // last left the panel, which is a better guess than a screen corner.
+        let main = ensureMain()
+        pill.setFrameOrigin(NSPoint(
+            x: main.frame.maxX - Self.pillSize.width,
+            y: main.frame.maxY - Self.pillSize.height))
+        if main.isVisible { main.orderOut(nil) }
         pill.orderFrontRegardless()
     }
 
@@ -182,15 +209,29 @@ final class MeetingPanel {
     private func ensureMain() -> NSPanel {
         if let main { return main }
         let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: Self.stripSize),
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            contentRect: NSRect(origin: .zero, size: Self.defaultSize),
+            // `.resizable` gives the drag handles on all edges. Set at init and
+            // never mutated — changing styleMask afterwards silently breaks
+            // typing in a non-activating panel.
+            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView, .resizable],
             backing: .buffered,
             defer: false)
         applyShared(to: panel)
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
         panel.hasShadow = true
-        panel.setFrameAutosaveName("PlumeMeetingPanel")
+        // A real floor now that the user can drag: applyShared's 1×1 exists for
+        // the 22pt pill and would let this one be dragged into nothing. Both
+        // properties are set *and* enforced in the delegate, because on their
+        // own they are silently ignored once the hosting view is installed.
+        panel.minSize = Self.minSize
+        panel.contentMinSize = Self.minSize
+        let delegate = PanelResizeDelegate(minSize: Self.minSize)
+        panel.delegate = delegate
+        resizeDelegate = delegate
+        // Renamed: the saved frame from the two-fixed-sizes era would restore a
+        // 340×300 or 430×580 panel and read as the change not having landed.
+        panel.setFrameAutosaveName("PlumeMeetingPanelSized")
         // `.titled` brings buttons that PanelControls replaces.
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             panel.standardWindowButton(button)?.isHidden = true
@@ -201,8 +242,8 @@ final class MeetingPanel {
         if panel.frame.origin == .zero, let screen = NSScreen.main {
             let visible = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(
-                x: visible.maxX - Self.stripSize.width - 24,
-                y: visible.maxY - Self.stripSize.height - 24))
+                x: visible.maxX - panel.frame.width - 24,
+                y: visible.maxY - panel.frame.height - 24))
         }
         main = panel
         return panel

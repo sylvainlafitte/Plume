@@ -11,6 +11,8 @@ final class MenuBarController {
     private let failureItem: NSMenuItem
     private let toggleItem: NSMenuItem
     private let panelItem: NSMenuItem
+    private var idleImage: NSImage?
+    private var recordingImage: NSImage?
 
     var onToggle: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -91,10 +93,14 @@ final class MenuBarController {
 
         statusItem.menu = menu
 
+        // Idle stays a template so it follows the menu bar's own light/dark
+        // foreground; recording is a fixed red that must not be re-tinted.
+        idleImage = Self.featherImage()
+        idleImage?.isTemplate = true
+        recordingImage = Self.tinted(.systemRed)
+
         if let button = statusItem.button {
-            let image = Self.featherImage()
-            image?.isTemplate = true
-            button.image = image
+            button.image = idleImage
             button.imagePosition = .imageLeft
         }
     }
@@ -115,7 +121,7 @@ final class MenuBarController {
         // route to the same place is clutter.
         panelItem.isEnabled = state.hasPanelSession
         panelItem.title = "Show notes panel"
-        statusItem.button?.contentTintColor = isRecording ? .systemRed : nil
+        statusItem.button?.image = isRecording ? recordingImage : idleImage
 
         switch state.transcription {
         case .idle:
@@ -150,6 +156,26 @@ final class MenuBarController {
     <path d="M17.5 15H9"/>
     </svg>
     """
+
+    /// A pre-tinted copy, because `contentTintColor` does not colour a status
+    /// item's **template** image: the template treatment wins, and the icon
+    /// merely goes from the menu bar's foreground colour to black — which on a
+    /// dark menu bar reads as the icon disappearing, not as "recording".
+    /// Baking the colour in and turning the template flag off is the only way
+    /// to get a colour that survives.
+    private static func tinted(_ color: NSColor) -> NSImage? {
+        guard let base = featherImage() else { return nil }
+        let output = NSImage(size: base.size)
+        let bounds = NSRect(origin: .zero, size: base.size)
+        output.lockFocus()
+        base.draw(in: bounds)
+        color.set()
+        bounds.fill(using: .sourceAtop)
+        output.unlockFocus()
+        // Template rendering would discard exactly what we just baked in.
+        output.isTemplate = false
+        return output
+    }
 
     private static func featherImage() -> NSImage? {
         guard let data = featherSVG.data(using: .utf8),
