@@ -40,7 +40,7 @@ Rejected: forking OpenOats and deleting. Its unwanted features are not separable
 | Ask | **One meeting at a time** | Reuses Phase 4's chunking; no embeddings, no cross-meeting index |
 | Packaging | **`.app` bundle** | TCC grants bind to bundle identity; login item via `SMAppService` |
 | Call detection | **None; manual only** | Drops a ~150-line subsystem; camera trick recorded in F5 |
-| Notes panel | **Strip during the call; expands to a Notes/Summary pair after stop** | The primary surface for a fresh meeting — see F8 |
+| Notes panel | **Pill / strip / wrap-up.** Free-text notes throughout | The primary surface for a fresh meeting — see F8 |
 | Transcript in the UI | **Never displayed** | No transcript view anywhere; it exists as summarizer input and as text in `meeting.md` |
 | Summarization trigger | **Explicit, after wrap-up notes** | Not automatic on stop — see F8 and R10 |
 | Templates | **Default runs on first generate; switch and regenerate** | Markdown files in a folder you can open — see F9 |
@@ -114,6 +114,8 @@ automatic context reduction on load OOM (`server/sched.go:757`), which is an acc
 now that the value is measured rather than guessed.
 
 **F4 — Floating panel configuration [verified against source].**
+*Superseded in part during Phase 5: the pill is now a **separate borderless window**, because a
+`.titled` window's `contentLayoutRect` collapses to zero height below ~28pt. See AGENTS.md.*
 
 ```swift
 styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView]
@@ -165,12 +167,19 @@ Stopping the recording does not end the interaction. The panel stays up and expa
 thoughts can be added while transcription runs, and only then is the summary generated:
 
 ```
-[recording]  strip: elapsed time, stop button, notes field
+[pill]       62×22 capsule: red dot + elapsed. Click to expand.  ⌘M collapses
+     ↕
+[recording]  strip: elapsed, Stop, notes editor, ⌘T timestamp
      ↓ stop
-[wrap-up]    expanded: Notes tab (focused) │ Summary tab (disabled, "transcribing…")
+[wrap-up]    Notes tab (editor + template + Summarize) │ Summary tab (result + speakers)
      ↓ transcription + diarization finish in the background (~30-60s for an hour)
-[ready]      Summary tab enabled → "Summarize" → streams in → template picker, regenerate
+[ready]      Summarize enabled → streams into the Summary tab
 ```
+
+*Revised during Phase 5:* Summarize is the primary CTA **under the notes**, not on the
+Summary tab — notes are the input and the summary is the output, so the action belongs
+where you finish working, and editing then regenerating never means bouncing tabs. The
+Summary tab is a result view: summary plus speaker list, no controls.
 
 Three consequences worth stating plainly:
 
@@ -181,11 +190,12 @@ Three consequences worth stating plainly:
   call or an abandoned wrap-up must never leave the transcript unwritten, and the summary step
   then only ever *replaces a region in an existing file*, which is the same operation as
   regeneration rather than a special case.
-- **Notes must be editable during wrap-up, not just appendable.** Append-only is right for
-  crash-safety *during* the call, but "add last thoughts before summarising" implies cleaning
-  up what's there. So: the panel appends line-by-line while recording; on stop, the Notes tab
-  loads `.plume/notes.md` into an ordinary editable text view and saves it whole. That's a
-  `TextEditor`, not a markdown editor — no preview, no syntax highlighting, no toolbar.
+- **Notes are an editable field throughout, not just at wrap-up.** *Revised during Phase 5:
+  the original design appended line-by-line while recording and only became editable on stop.
+  In use that was wrong — you rewrite notes as a meeting goes, and a commit-only field forces
+  you to get each line right first time.* So it is one `TextEditor` in both states, saved whole
+  on a 1.2s debounce. A `TextEditor`, not a markdown editor: no preview, no highlighting,
+  no toolbar.
 - **Because transcription is never displayed, there is no transcript view to build** — no long-list
   rendering, no virtualization, no scroll-sync. The transcript reaches the user only as text in
   `meeting.md`. This is a genuine simplification, not just a deferral.
@@ -364,25 +374,35 @@ speaker_S2: Tom
   (a naive `S1`→`Marie` also hits `S1` inside utterance text). Renaming onto an existing label is
   refused — that's a *merge*, which is a separate, explicit operation (F8) so it can't happen by
   typo. Frontmatter is the source of truth.
-- Notes lines are stamped with elapsed time as typed, so the model can correlate them with
-  transcript positions. *[unverified: that this improves summary quality. Worth one A/B.]*
+- Notes carry **no automatic timestamps**. *Revised during Phase 5: the original design
+  stamped every line. Stamps went stale the moment a line was reworded, most notes are general
+  observations a precise time misrepresents, and the claimed benefit to summary quality was
+  never verified.* ⌘T inserts `[12:04] ` deliberately when a thought really is anchored.
 
-**F7 — Notes go to `.plume/notes.md`, appended one line per stamp** — during the call *and*
-through wrap-up. Crash-safe, no re-read/rewrite per keystroke, and it removes an entire risk
-class: if the panel wrote into `meeting.md` live while the user had it open in Obsidian,
-Obsidian's next save would eat the transcript. Wrap-up notes are appended under a
-`--- after the call ---` marker so the summarizer can weight them as conclusions rather than
-in-the-moment capture.
+**F7 — Notes live in `.plume/notes.md`, saved whole on a 1.2s debounce.** They are never
+written into `meeting.md` during a call — that file doesn't exist yet, and writing there live
+would race with anything the user has open in an editor. Once the transcript exists, the Notes
+region is kept in step.
+
+*Revised during Phase 5:* the original design appended one stamped line per entry, with a
+`--- after the call ---` divider. Both are gone. Append-only fought editing; the divider was
+structure leaking into the user's own words, and meant little once lines weren't individually
+stamped. The cost — a crash can lose a second or two of typing instead of nothing — was
+accepted deliberately.
 
 **Pipeline state is explicit.** Quill's crash-resume sentinel is literally "`meta.json` exists
 && `transcript.json` missing" — which Phase 3 deletes. Replace with `stage:` in
 `.plume/state.json`:
 
 ```
-recorded → transcribed → diarized → awaiting_wrapup → summarized
-                    ↘ failed(stage, error) ↗   ↘ cancelled
-                      needs_permission
+recorded → transcribed → summarized
+       ↘ failed(stage, message) / needsPermission / cancelled
 ```
+
+*Implemented with three durable stages, not the five originally sketched.* `diarized` never
+becomes a distinct resting state — diarization failure degrades to `them` and continues — and
+`awaiting_wrapup` **is** `transcribed` with no summary yet. Three stages that genuinely occur
+beat five where two are decorative.
 
 Failure states are explicit, not implied by absence: `failed` carries the stage and error so the
 UI can offer a targeted retry, `needs_permission` is distinct from `failed` because the fix is
@@ -551,7 +571,8 @@ Three correctness details:
 *Done when:* a 2-hour transcript summarizes with the **middle** represented, not just the ends.
 
 **Phase 5 — The panel, both modes.** Per F4, F8 and the Phase 1 spike.
-- *During the call:* compact non-activating strip, hotkey to focus, explicit hide hotkey (B2).
+- *Collapsed:* a 62×22 borderless capsule showing the record dot and elapsed time.
+- *During the call:* non-activating strip with a full notes editor, ⌘T to timestamp.
 - *After stop:* expands and activates into Notes (focused) / Summary tabs; Summary shows
   transcription progress, then a Summarize action, streaming output, template picker,
   regenerate, and the speaker list with rename fields.

@@ -12,9 +12,16 @@ AGENTS.md **in the same commit**.
 
 ## Current state
 
-**Phase:** 5 verified; 6 next (history window)
-**Next action:** Phase 6 — the history window (list, open in editor, regenerate, rename), which
-is the last piece before Ask.
+**Phase:** 1–5 built and verified on real recordings. 6 next (history window).
+**Next action:** Phase 6 — a window listing past meetings, with open-in-editor, reveal in
+Finder, regenerate with a different template, and rename/merge speakers. Deliberately *not* an
+in-app markdown editor (see PLAN.md "Scope"). Then Phase 7 (Ask), which is optional and the
+first thing to cut.
+
+**What works end to end today:** menubar record → two-track capture → Parakeet transcription →
+offline diarization + echo filter → `meeting.md` with marked regions → audio deleted → floating
+panel for notes → templated summary via Ollama → title derived and folder renamed → speaker
+rename/merge. 95 tests.
 Phase 2's multi-speaker paths stay unverified until the corpus exists; that does **not** block
 later phases, but it does block calling Phase 2 done.
 
@@ -123,11 +130,17 @@ exactly one remote speaker.** The second is the one expected to fail.
       `--- after the call ---` boundary marker
 - [x] **Verified live 2026-08-15:** ↩ saved notes, frontmost was not stolen, panel expanded on
       Stop, wrap-up notes were editable and reached the summary
+- [x] **Round 2 (user feedback):** free-text notes with ⌘T timestamps instead of auto-stamped
+      lines; wrap-up divider removed; three panel sizes (pill / strip / wrap-up) with close +
+      minimise top-left in macOS order; Summarize moved to be the primary CTA under Notes;
+      spinner and progress text while generating; contextual menubar item
+- [x] **Round 3 (layout):** safe-area inset, picker alignment, pill clipping, resize animation,
+      and intrinsic-size snap-back — all fixed; pill split into its own borderless window
 - [ ] Global hotkey (needs Carbon `RegisterEventHotKey`) — menubar "Show notes panel" for now
 
 ### Phase 6 — History window
 - [ ] List, open in external editor, reveal in Finder, regenerate, rename
-- [ ] Surface `awaiting_wrapup` meetings
+- [ ] Surface meetings stuck at `transcribed` (transcribed but never summarized — R10)
 
 ### Phase 7 — Ask (optional, first to cut)
 - [ ] Input row under Summary, hosted in both panel and history window
@@ -173,6 +186,10 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | 2026-08-14 | First-run flow must tolerate a late permission grant | A grant made *during* a capture arrives too late for that capture. The app needs to re-run or re-prompt rather than report failure |
 | 2026-08-14 | **Keep `sharingType = .none`, keep the hide hotkey, promise nothing** | Spike B showed `.none` genuinely excludes the panel from ScreenCaptureKit capture on macOS 26.5.1 — it is not the no-op the plan assumed. The hotkey stays as defence in depth for untested capture paths (Zoom/Teams/Meet/browser) and future regressions; UI copy still must not claim privacy, since Apple guarantees nothing |
 | 2026-08-14 | **Fork verified end to end.** Plume.app records both tracks from `/Applications`: system −2.5 dBFS peak with audio playing, `-inf` when silent (correctly silent, not noise); mic captures speech | Confirms Spike A's result holds in the real app, not just the probe. Structure is now `PlumeKit` (all logic) + a one-line `plume` executable, so tests reach internals via `@testable` without making anything public |
+| 2026-08-15 | **The pill is a separate `.borderless` window; expanded states stay `.titled`** | `.titled` is required to become key (so you can type while a call stays frontmost) but carries an invisible ~28pt titlebar. Below that height `contentLayoutRect` collapses to zero and SwiftUI lays content out below the visible window. Anything shorter than a titlebar needs its own window |
+| 2026-08-15 | Notes are free text with manual ⌘T timestamps; no auto-stamping, no wrap-up divider | Stamps went stale on edit, most notes aren't anchored to a moment, and the claimed summary-quality benefit was never verified. Cost: whole-file debounced saves lose ~1s of typing on a crash instead of nothing — accepted |
+| 2026-08-15 | Summarize is the primary CTA under **Notes**, not on the Summary tab | Notes are the input, the summary is the output; the action belongs where you finish working, and editing-then-regenerating no longer means switching tabs. Summary tab is a result view |
+| 2026-08-15 | `build-app.sh` stages and signs in `/tmp`, outside the repo | The repo is under `~/Documents`, which iCloud's file provider stamps with `com.apple.FinderInfo`/`com.apple.fileprovider.*` — what codesign actually rejects. Stripping them loses a race with the provider |
 | 2026-08-15 | Region headings are de-duplicated when writing a region | The first real summary came out with `## Summary` twice: the region carries the heading, and the template also tells the model to emit it. Stripping on write keeps templates readable standalone and tolerates user-written ones — the same wart noted in OpenOats, reproduced and then fixed |
 | 2026-08-15 | **Ad-hoc signing was why permissions reset on every rebuild.** Switched `build-app.sh` to the existing Apple Development identity | An ad-hoc signature's Designated Requirement is the cdhash, which changes with every build, so macOS saw each rebuild as a new app. A certificate-backed DR keys on cert + bundle ID and survives. `PLUME_SIGN_ID=-` forces ad-hoc if needed |
 | 2026-08-15 | `RecordingSession` is now `@MainActor` rather than carrying an unchecked capture | The watchdog timer's `@Sendable` block captured a non-Sendable `self`. The class is *already* main-isolated in practice (only `AppController` touches it; the timer fires on the main run loop), so declaring it makes the class implicitly Sendable — stating the truth instead of asserting past it. Audio threads live a level down in the recorders, which own their own locks |
@@ -197,6 +214,8 @@ The most valuable section. Record dead ends **with the evidence**, so they aren'
 
 | Date | Tried | Outcome |
 |---|---|---|
+| 2026-08-15 | **Guessing three times at a UI clipping bug instead of measuring it** | The pill was cropped; I blamed the safe area, then the window minimum height, then a frame-vs-content-rect mismatch, shipping a "fix" each time. One temporary diagnostic logging `frame`/`content`/`contentLayoutRect` found it immediately: layout rect height was **0**, because the titlebar exceeded the window height. **Lesson: when a layout bug survives one plausible fix, log the geometry before trying a second.** The earlier fixes were kept only where independently correct |
+| 2026-08-15 | Assuming `com.apple.provenance` was blocking codesign | It is on every file macOS 14+ writes, is **not** removable (`xattr -c` reports success and leaves it), and codesign tolerates it. The real blockers were `com.apple.FinderInfo` and `com.apple.fileprovider.fpfs#P`, applied by iCloud because the repo is in `~/Documents` |
 | 2026-08-14 | **Concluding from Spike A that "a shell-launched binary records silence"** | Over-generalised from one measurement with an uncontrolled variable. The same binary later passed from the same shell (0% → 99.5% non-zero) once the *terminal* had acquired the grant. Correct statement: a bare binary has no TCC identity and inherits the responsible process's, so a shell run is inconclusive **in both directions**. The `.app` decision is unaffected — it's the only deterministic, self-owned grant — and the empirical check matters *more*, since launch context can't predict capture health. Same error class as the PLAN.md B2 `[verified]` tag: a real observation stated as a law |
 | 2026-08-14 | Using `ollama ps` SIZE to measure memory cost | Useless — reproducibly non-monotonic for identical weights (3.2 GB @ 4096, 9.5 GB @ 8192–16384, 3.3 GB @ 32768+). Whatever it reports, it is not weights + KV. Use `~/.ollama/logs/server.log` `llama_kv_cache:` lines instead; those are exact and linear. Also: `ollama ps` columns are `NAME ID SIZE UNIT PROC% GPU CONTEXT UNTIL` — `CONTEXT` is field 7, and it's the reliable confirmation that `num_ctx` was applied |
 | 2026-08-14 | Trusting a `[verified]` tag in PLAN.md that turned out to be a *citation*, not a measurement (B2, `sharingType = .none`) | Wrong on our target OS. The source was Apple DTS declining to **guarantee** capture exclusion — a statement about warranties, not about whether the mechanism functions. Spike B measured it working on macOS 26.5.1. **Lesson: when a plan claim is tagged verified, check whether someone measured it or merely found someone asserting it.** Several remaining tags are citations |

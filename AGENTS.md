@@ -3,145 +3,148 @@
 Local-only macOS meeting recorder → transcript → AI summary. Menubar app, no cloud.
 Forked from [digimata/quill](https://github.com/digimata/quill) (MIT).
 
-> **This file is the source of truth for how Plume works right now.** Keep it that way — see
-> [Keeping this file current](#keeping-this-file-current) at the bottom. It is not optional
-> housekeeping; it is the only thing carrying hard-won constraints across sessions.
+> **This file carries what you cannot infer from the code**: things that are irreversible if you
+> get them wrong, decisions that look like omissions, and platform traps that fail silently.
+> It is ordered by what a change is likely to cost, not by topic.
 
-**Precedence when documents disagree:**
+**Precedence:** the **code** wins over this file (if they disagree, fix the file in the same
+commit). This file wins over **[docs/PLAN.md](docs/PLAN.md)**, which is a pre-implementation
+design record — read it for *why*, not for *what is*.
+**[docs/PROGRESS.md](docs/PROGRESS.md)** is the log: state, next action, and dead ends.
 
-1. **The code.** If AGENTS.md contradicts the code, the code is right and this file is stale —
-   fix it in the same commit that revealed the drift.
-2. **AGENTS.md** — the operative rules as things actually stand.
-3. **[docs/PLAN.md](docs/PLAN.md)** — *why* we chose this. Written before implementation, so it
-   becomes a design record rather than instructions as phases land. Read it for reasoning; don't
-   follow it over this file.
+## 1. Invariants — breaking these destroys something unrecoverable
 
-[docs/PROGRESS.md](docs/PROGRESS.md) is orthogonal: what has happened, what's next, and what was
-tried and rejected. Log there as you work, especially dead ends.
-
-## Build & test
-
-```bash
-swift build            # debug
-swift test             # unit tests
-swift build -c release
-```
-
-**Never test audio capture with `swift run`. The result is meaningless either way.** A bare
-binary has **no TCC identity of its own** — capture is attributed to the *responsible process*,
-i.e. your terminal. Without that grant you get full-length digital silence, no error, no prompt,
-every `OSStatus` `noErr`; with it, capture works while proving nothing about the app. Both were
-observed hours apart from the same binary (0% then 99.5% non-zero). Only the `.app` has a
-deterministic, self-owned grant — build and run the bundle. This is why capture health must be
-checked empirically (invariant 4). A grant made *during* a run lands too late for it; re-run once.
-Evidence: [spikes/responsible-process/RESULTS.md](spikes/responsible-process/RESULTS.md).
-
-## Constraints an agent will otherwise get wrong
-
-**FluidAudio is pinned `.exact("0.15.5")` on purpose. Do not bump it.** This dependency has
-made source-breaking changes in *patch* releases — it broke and reverted the LS-EEND
-constructors inside one release, flipped `SpeakerManager` between actor and struct across two
-patches, and removed `DownloadUtils` in a patch as "breaking". There is no CHANGELOG. A bump is
-a project, not a chore: recompile, then re-run diarization against the test corpus and compare
-DER before accepting it. All FluidAudio calls go behind our own protocol so this stays a
-one-file diff.
-
-**Swift 6 strict concurrency is on.** `OfflineDiarizerManager` is a `public final class` with
-`nonisolated(unsafe)` state — not `Sendable`, so it needs an owning actor, not a protocol
-existential passed around.
-
-**Don't reach for `@unchecked Sendable` to silence a warning.** Anything short of provable
-exclusive ownership needs a lock (`OSAllocatedUnfairLock`, as in both recorders), not an
-assertion. There are **three** in the codebase and each must carry a comment saying why:
-
-- `ManagerBox` (`DiarizationEngine.swift`) — justified. Created inside one actor, stored only
-  there, never returned or passed to another task, touched only from isolated methods.
-- `Meter` (`AudioProbe.swift`) — justified. Written from the audio thread, read only after
-  capture has stopped, which is the happens-before.
-- `MicRecorder` — **inherited debt, not justified.** Quill added it for one
-  `DispatchQueue.main.async` capture and disabled checking on the whole class. quill#18 locked
-  the fields that were actually racing; the class conformance survives and still hides anything
-  new. Treat any new stored property there as suspect. Removing it is open work.
-
-**Use `OfflineDiarizerManager`, not `LSEENDDiarizer`.** The streaming diarizer is roughly twice
-the error rate on meeting audio and caps speaker count. We batch, so we use the offline VBx
-pipeline. If you find code using the streaming one, it's a mistake.
-
-**Parakeet stays on `.v2`** (English-only, marginally better English WER). `.v3` is FluidAudio's
-default, so an omitted `version:` argument silently changes the model.
-
-**Diarizer settings are measured values, not preferences.** Don't expose or retune them; the
-evidence for each is in `DiarizationEngine.swift`. In particular, contain a mis-split 1:1 with
-`expected_participants` (default 2 ⇒ far end capped at one speaker), **never** by lowering the
-threshold: under-splitting conflates two real people irreversibly, over-splitting is one merge
-click. Any change here means re-running the test corpus, because production audio is deleted
-(invariant 5).
-
-**Ollama: use the native `/api/chat`, not the OpenAI-compatible `/v1`.** `/v1` has no `options`
-passthrough, so `num_ctx` is unsettable there and the context silently defaults to 4096 — which
-would quietly summarize only the tail of a long meeting. Always send `num_ctx`, `truncate: false`,
-`shift: false`. Talk to `127.0.0.1`, never a LAN address.
-
-**Don't evict other apps' Ollama models.** It's a shared daemon. Unload ours; leave theirs.
-
-## Invariants — breaking these loses user data or trust
+Audio is deleted after transcription, so most damage here cannot be undone.
 
 1. **Never silently rewrite a marked region.** `meeting.md` has `<!-- plume:notes -->`,
    `<!-- plume:summary -->`, `<!-- plume:transcript -->`. Re-read from disk before every write,
    replace only between markers, and **fail loudly if a marker is missing** — never append a
-   duplicate section. Writes go through `FileManager.replaceItemAt`, not `Data.write(.atomic)`
-   (which swaps the inode and drops xattrs and Finder tags).
-2. **A failed generation must never destroy a good one.** Stream a summary into a buffer;
-   replace the region only on success.
-3. **Derived names are proposals, not facts.** Speaker names inferred from the transcript are
-   pre-filled suggestions requiring one click. A wrong name attributes quotes to a real person
-   who didn't say them — worse than an honest `S1`.
-4. **System-audio health can only be verified empirically.** Confirmed by measurement, not
-   theory: in the failing case the tap was created, the format was a correct 48 kHz stereo, the
-   aggregate device existed, and the IOProc fired 280 times at exactly the right rate — with
-   every sample zero. No return code, format check or packet count can detect this. The only
-   real check is: play a tone, capture, assert the samples aren't all zero.
-5. **Audio is deleted immediately after transcription, by decision.** There is no re-run. Tune
-   against the held-aside test corpus, never against production recordings.
-6. **The user's Notes region is theirs.** The app writes it during capture and wrap-up; nothing
-   downstream rewrites it.
+   duplicate. Writes go through `FileManager.replaceItemAt`, never `Data.write(.atomic)`, which
+   swaps the inode and drops xattrs and Finder tags.
+2. **A failed generation must never destroy a good one.** Stream into a buffer; replace the
+   region only on success.
+3. **Derived names are proposals, not facts.** Inferred speaker names wait for one human click
+   in `.plume/proposals.json`. A wrong name puts words in a real person's mouth — worse than an
+   honest `S1`.
+4. **The user's Notes are theirs.** Nothing reformats them: no imposed bullets, no automatic
+   timestamps, no structural markers.
+5. **Capture health is only knowable empirically.** A tap without permission returns `noErr`,
+   reports a correct 48 kHz stereo format, creates its aggregate device, and fires its IOProc at
+   exactly the right rate — with every sample zero. Play a tone, capture, assert non-zero.
+   Nothing cheaper is true.
+6. **Audio is deleted immediately after transcription, by decision.** Tune against the
+   held-aside corpus, never against a real meeting.
 
-## Upstream
+## 2. Deliberate, not missing
 
-`upstream` remote points at digimata/quill. We cherry-pick from its open PRs (#18 data races,
-#2 mic restart, #6 liveness watchdog, #25 echo filter, #20 diarization reference). Upstream has
-merged almost nothing, so don't expect to pull. **Attribute cherry-picked work** in the commit
-message — it's MIT, not public domain.
+These look like gaps. They are choices, most of them argued about and some of them reversals of
+an earlier design. **Don't "fix" them without asking.**
 
-## Style
+| Looks like | Actually |
+|---|---|
+| No transcript view in the app | Deliberate. The transcript is summarizer input and text in `meeting.md`. Speaker rows show sample lines so you can identify a voice without one. |
+| Notes have no automatic timestamps | Reversed in Phase 5: stamps went stale whenever a line was edited, and most notes aren't anchored to a moment. ⌘T inserts one on purpose. |
+| Summarizing is manual | The wrap-up gate is the point — you add final thoughts *then* summarize. A meeting resting at `transcribed` forever is normal. |
+| Only three templates, no template editor | Templates are markdown files in a folder; editing one means opening it. A JSON store and an editor UI were both declined. |
+| No in-app markdown editor | Declined. The files are markdown in a folder and every Mac has a good editor. |
+| Speaker names aren't applied automatically | Invariant 3. |
+| Audio vanishes after transcription | Invariant 6, a requirement not a bug. |
+| `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
 
-Match Quill's existing voice: small files, comments that explain *why* a non-obvious thing is
-done (its Core Audio and voice-processing comments are load-bearing — keep them). No new
-dependencies without a note in PROGRESS.md saying what it replaced.
+Genuinely **not built yet** (different thing): `SMAppService` login item, a Carbon global
+hotkey, the Phase 6 history window, Phase 7 Ask.
+
+## 3. Build & run
+
+```bash
+swift build && swift test                      # library + 95 tests
+./build-app.sh release run                     # assemble, sign, install, launch
+./.build/debug/plume doctor                    # checks — but see below
+./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
+./.build/debug/plume summarize <session-dir>   # dev: summarize in place
+```
+
+**Never test audio capture with `swift run`; the result is meaningless either way.** A bare
+binary has no TCC identity — capture is attributed to the *responsible process*, i.e. your
+terminal. Without that grant you get full-length silence with no error; with it, capture works
+while proving nothing about the app. Both were observed hours apart from one binary. Only the
+`.app` has a self-owned grant.
+
+**`build-app.sh` stages in `/tmp` on purpose.** This repo is under `~/Documents`, which iCloud
+stamps with `com.apple.FinderInfo` — what codesign rejects as *"resource fork, Finder
+information, or similar detritus"*. Stripping it loses a race with the file provider.
+(`com.apple.provenance` is on everything, is **not** removable, and codesign tolerates it —
+not the culprit.) Signing uses the Apple Development identity; ad-hoc keys its Designated
+Requirement to the cdhash, so every rebuild would re-prompt for permissions.
+
+## 4. Constraints that will cost you time
+
+Each has fuller reasoning in a comment at the point of use.
+
+**FluidAudio is pinned `.exact("0.15.5")`. Do not bump it.** It has made source-breaking changes
+in *patch* releases — LS-EEND constructors broken and reverted inside one release,
+`SpeakerManager` flipped actor↔struct across two, `DownloadUtils` removed in a patch. No
+CHANGELOG. A bump means recompiling *and* re-running the corpus to compare DER. All calls sit
+behind our own protocol so it stays a one-file diff.
+
+**Use `OfflineDiarizerManager`, not `LSEENDDiarizer`** — half the error rate on meeting audio,
+no speaker cap. Its settings are measured values, not preferences; see `DiarizationEngine.swift`.
+
+**Parakeet stays on `.v2`.** `.v3` is FluidAudio's default, so omitting `version:` silently
+changes the model.
+
+**Ollama: native `/api/chat`, never `/v1`.** `/v1` has no `options` passthrough, so `num_ctx`
+is unsettable and the context silently falls back to 4096 — summarizing only the tail of a
+meeting. Send `num_ctx: 32768`, `truncate: false`, `shift: false`; the 400 you get on overflow
+carries the token counts that size the map-reduce fallback. Use `127.0.0.1`. Unload *our* model
+only — Ollama is shared.
+
+**The panel is two windows and must stay that way.** `.titled` is needed to become key so you
+can type while a call stays frontmost, but it carries an invisible ~28pt titlebar: below that
+height `contentLayoutRect` collapses to **zero** and SwiftUI lays content out below the visible
+window. Hence the 22pt pill is `.borderless`. Also: `hosting.sizingOptions = []`, or SwiftUI's
+intrinsic size snaps the window back after every resize; and never mutate `styleMask` after
+init — typing silently stops working.
+
+**Swift 6 strict concurrency is on.** `OfflineDiarizerManager` isn't `Sendable` and needs an
+owning actor. Don't reach for `@unchecked Sendable`: use a lock. The three that exist each carry
+a justification, and `MicRecorder`'s is **inherited debt** — Quill disabled checking on the whole
+class; quill#18 locked the fields that raced but the conformance still hides anything new.
+
+**Pipeline state** is `.plume/state.json`: `recorded → transcribed → summarized`, plus
+`failed(stage,message)` / `needsPermission` / `cancelled`. Only transcription resumes
+automatically, and blocking must preserve the stage reached — otherwise a meeting whose audio is
+gone gets re-transcribed into nothing.
+
+## 5. Working habits
+
+`Sources/PlumeKit/` holds everything (`Audio`, `Transcription`, `Meeting`, `Summary`, `UI`);
+`Sources/plume/main.swift` is a one-line shim so tests can `@testable import`. `spikes/` is
+committed on purpose — each has a RESULTS.md and re-runs.
+
+`upstream` points at digimata/quill; we cherry-pick from its open PRs and **attribute them in
+the commit message**. Upstream merges almost nothing, so don't expect to pull. Note the PRs are
+mutually unaware: combining two correct ones has twice produced a bug.
+
+Match Quill's voice — small files, comments explaining *why* a non-obvious thing is done. No new
+dependencies without a note in PROGRESS.md saying what they replaced.
+
+**When a bug survives one plausible fix, stop guessing and measure.** Three "fixes" went into a
+clipped panel before one diagnostic printed the geometry and found it in seconds.
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-14, after Phase 2.*
+*Last reviewed against the code: 2026-08-15, after Phase 5.*
 
-**Rule: update this file in the same commit as the change, never "later."** A separate
-documentation pass does not happen, and a constraint that is silently wrong is worse than one
-that is missing — the next agent will trust it.
+**Update it in the same commit as the change, never "later."** A separate documentation pass
+does not happen, and a silently wrong constraint is worse than a missing one — the next agent
+will trust it.
 
-**Update it when:** a constraint here stops being true (dependency bumped, endpoint or model
-changed, workaround no longer needed — edit the claim, don't leave both versions); a spike
-answers an open question; you add or break an invariant; build/run commands change; or
-**something cost you more than ~30 minutes and isn't obvious from the code** — that last one is
-the definition of what belongs here.
+**The test for belonging here** is not length, it's: *would getting this wrong cost more than
+reading it?* Irreversible damage and reversed decisions always qualify. A platform trap qualifies
+while it stays invisible — once a test or an obvious code comment enforces it, cut it here and
+keep the pointer. Design rationale belongs in PLAN.md; status and dead ends in PROGRESS.md;
+anything derivable from reading the code belongs nowhere.
 
-**Don't put here:** design rationale → PLAN.md. Status and dead ends → PROGRESS.md. Anything a
-competent reader gets from the code. This file earns its length by holding only **non-derivable**
-things: platform traps, silent failures, upstream behaviour, and decisions that look arbitrary
-but aren't.
-
-**Length is the failure mode.** Past ~two screens, something has drifted in that belongs in
-PLAN.md or a code comment. Prune rather than append; a file nobody finishes reading protects
-nothing.
-
-When you edit this file, bump the *Last reviewed* date. If that date is far behind HEAD at the
-start of a session, spend five minutes checking Constraints and Invariants against reality
-before trusting them.
+Bump the date when you edit. If it is far behind HEAD, spend five minutes checking sections 1
+and 4 against reality before trusting them.
