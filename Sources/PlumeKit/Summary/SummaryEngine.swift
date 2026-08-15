@@ -81,34 +81,21 @@ actor SummaryEngine {
     private func apply(_ identity: MeetingIdentity, to session: URL) throws -> URL {
         guard let title = identity.title, !title.isEmpty else { return session }
 
-        let meetingURL = session.appendingPathComponent("meeting.md")
-        let document = try String(contentsOf: meetingURL, encoding: .utf8)
-        var pairs = MeetingDocument.frontmatter(in: document)
-        if let index = pairs.firstIndex(where: { $0.0 == "title" }) {
-            pairs[index] = ("title", title)
+        // A title someone typed outlasts every regenerate. Derived names are
+        // proposals (invariant 3) and this one has already been answered —
+        // overwriting it would make Rename appear to work and then silently
+        // undo itself on the next summary.
+        guard !MeetingAdmin.isUserTitled(session: session) else { return session }
+
+        try MeetingDocument.updateFrontmatter(
+            at: session.appendingPathComponent("meeting.md")
+        ) { pairs in
+            MeetingDocument.setValue(title, for: "title", in: &pairs)
         }
-        guard let end = document.range(of: "\n---\n") else { return session }
-        try MeetingDocument.write(
-            MeetingDocument.renderFrontmatter(pairs) + String(document[end.upperBound...]),
-            to: meetingURL)
 
         // Rename the folder to carry the title. Safe here: recording finished
         // long ago, the audio is deleted, and nothing holds the directory open.
-        let slug = MeetingIdentityDeriver.slug(title)
-        guard !slug.isEmpty else { return session }
-        let stamp = session.lastPathComponent.prefix(15)  // yyyy-MM-dd-HHmm
-        let renamed = session.deletingLastPathComponent()
-            .appendingPathComponent("\(stamp)-\(slug)", isDirectory: true)
-        guard renamed != session,
-            !FileManager.default.fileExists(atPath: renamed.path)
-        else { return session }
-        do {
-            try FileManager.default.moveItem(at: session, to: renamed)
-            return renamed
-        } catch {
-            // A failed rename is cosmetic; the timestamp name is perfectly good.
-            return session
-        }
+        return MeetingAdmin.renameFolder(session, toSlugOf: title)
     }
 
     // MARK: - Generation

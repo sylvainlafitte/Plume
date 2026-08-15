@@ -199,23 +199,18 @@ what makes it non-trivial, because none of these are as small as they look.
       shared framing. Cheap, but it changes generated output, so it wants a before/after read on
       a real meeting rather than a blind edit.
 
-- [ ] **Rename a meeting by hand** (from the Meetings list and/or the summary panel).
-      Worth doing, but it collides with auto-titling: the title lives in *two* places — the
-      `title:` frontmatter key and the folder-name slug — and `SummaryEngine` re-derives both on
-      every summarize. A hand-typed name would silently revert on the next regenerate.
-      **The fix is invariant 3 applied to titles:** record that a human chose it (a
-      `title_source: user` frontmatter key, or the absence of a `title_auto` flag) and have the
-      titling step skip any meeting that carries it. Rename must also move the folder, which
-      makes it the same operation as the post-summarize rename that already exists — reuse
-      `locateRenamed`'s stamp-prefix matching, and keep the `yyyy-MM-dd-HHmm` prefix immutable
-      so the sort order and every stamp-prefix lookup keep working.
-
-- [ ] **Delete a meeting from the Meetings list.** Reasonable, and it pairs naturally with
-      rename in one context menu. **Must go to the Trash via `NSWorkspace.recycle`, never
-      `removeItem`** — audio is already deleted by then (invariant 6), so `meeting.md` is the
-      only copy of a meeting that can never be reproduced. Needs a confirmation sheet naming the
-      meeting, and the list has to drop its selection without re-selecting something the user
-      didn't ask for.
+- [x] **Rename and delete a meeting. Done 2026-08-15.** Both in `MeetingAdmin`, reachable from a
+      row context menu and an ellipsis menu in the detail header. Rename writes the title *and*
+      `title_source: user`, moves the folder to `<stamp>-<slug>`, and disambiguates a slug
+      collision (`-2`) rather than merging into an existing folder; the `yyyy-MM-dd-HHmm` prefix
+      is preserved because the list sorts on it and renamed sessions are located by matching it.
+      Auto-titling now **skips any meeting carrying the marker** — invariant 3 applied to titles,
+      without which the next Regenerate would silently undo the rename. Delete goes to the Trash
+      via `FileManager.trashItem` behind a confirmation naming the meeting, and selects the
+      neighbour rather than jumping to the top. 7 new tests. **Open in editor / Reveal in Finder
+      moved into the same menu**: none of the four is why the window exists — reading and
+      regenerating a summary are — so the header keeps the title and one `⋯` menu, and one
+      builder backs both the header menu and the row context menu so they can't diverge.
 
 - [x] **Show the summary model / Ollama status next to Summarize. Done 2026-08-15.** A caption
       in `summarizeBar`: the model name when it's installed and reachable, orange
@@ -238,6 +233,8 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | 2026-08-14 | **Keep `sharingType = .none`, keep the hide hotkey, promise nothing** | Spike B showed `.none` genuinely excludes the panel from ScreenCaptureKit capture on macOS 26.5.1 — it is not the no-op the plan assumed. The hotkey stays as defence in depth for untested capture paths (Zoom/Teams/Meet/browser) and future regressions; UI copy still must not claim privacy, since Apple guarantees nothing |
 | 2026-08-14 | **Fork verified end to end.** Plume.app records both tracks from `/Applications`: system −2.5 dBFS peak with audio playing, `-inf` when silent (correctly silent, not noise); mic captures speech | Confirms Spike A's result holds in the real app, not just the probe. Structure is now `PlumeKit` (all logic) + a one-line `plume` executable, so tests reach internals via `@testable` without making anything public |
 | 2026-08-15 | **A menubar-only (`LSUIElement`) app still needs a main menu** | Standard editing commands route through the main menu's key equivalents. Without one, ⌘C/⌘V/⌘X/⌘A/⌘Z reach nothing and beep — while selection keeps working, which points the investigation at the wrong layer entirely. `AppMenu.install()` exists purely for that routing |
+| 2026-08-15 | **Wrap-up is an ordinary window, not the floating panel.** Recording keeps `.nonactivatingPanel` + `.floating`; wrap-up is a third window at normal level | The reasons to float and not activate all expire at Stop — the call is over, so other apps are entitled to cover it. The deciding factor wasn't layering though: a `.nonactivatingPanel` can be **key while another app is active**, and key equivalents route through the *active* app's main menu, so ⌘C would reach nothing in the one window whose whole job is producing a summary you copy out. `styleMask` can't be mutated after init, so this had to be a separate window rather than a mode. The incoming window adopts the outgoing one's frame, so Stop doesn't teleport the panel |
+| 2026-08-15 | ⌘-Tab support **declined for now** | Would require `NSApp.setActivationPolicy(.regular)` — accessory apps are absent from ⌘-Tab by rule, not by configuration — which means a Dock icon and a real menu bar. Not wanted. If it is ever revisited, the thing to verify first is whether the **recording panel still behaves non-activatingly** after the app has been `.regular`: if it starts stealing frontmost from a call, the entire panel design is void |
 | 2026-08-15 | **`contentTintColor` does not colour a status item's template image.** The recording icon is a pre-tinted, non-template copy instead | Reported as "it goes from white to black", not red. A template image's rendering treatment wins over the tint, so the icon dropped from the menu bar's own foreground colour to black — on a dark menu bar that reads as the icon vanishing, which is the opposite of a recording indicator (R4). Idle stays a template so it still follows light/dark; recording bakes the red in and turns the flag off |
 | 2026-08-15 | Panel windows are not movable by background; headers and the pill carry `WindowDragGesture()` | Movable-by-background makes every content drag move the window, silently breaking drag-to-select and turning a pill drag into a click. The pill also stopped being a `Button` for the same reason |
 | 2026-08-15 | The recording panel calls `makeKey()` without `NSApp.activate` | `@FocusState` can only focus something in the key window, so the notes field could never take focus on appear. A non-activating panel can hold key while the call stays frontmost — that is what utility panels are for |

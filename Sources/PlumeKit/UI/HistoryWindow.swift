@@ -138,9 +138,10 @@ final class HistoryModel: MeetingDetailModel {
 
     // MARK: - Actions
 
-    func openInEditor() {
-        guard let selected else { return }
-        NSWorkspace.shared.open(selected.url.appendingPathComponent("meeting.md"))
+    /// Takes the meeting explicitly rather than acting on the selection, so a
+    /// right-click on any row acts on *that* row.
+    func openInEditor(_ url: URL) {
+        NSWorkspace.shared.open(url.appendingPathComponent("meeting.md"))
     }
 
     /// The folder behind the list — the escape hatch that used to sit in the
@@ -150,10 +151,47 @@ final class HistoryModel: MeetingDetailModel {
         NSWorkspace.shared.open(root)
     }
 
-    func revealInFinder() {
-        guard let selected else { return }
+    /// Rename a meeting. Named for the meeting to keep it distinct from
+    /// `rename(_:to:)`, which renames a *speaker*.
+    func renameMeeting(_ url: URL, to title: String) {
+        do {
+            let renamed = try MeetingAdmin.rename(session: url, to: title)
+            error = nil
+            entries = MeetingLibrary.entries(in: root)
+            // Follow the meeting to its new folder rather than losing the
+            // selection to a URL that no longer exists.
+            if selection == url { selection = renamed }
+            loadSelected()
+        } catch {
+            self.error = "\(error)"
+        }
+    }
+
+    /// Move a meeting to the Trash and select its neighbour.
+    func deleteMeeting(_ url: URL) {
+        // Where it sat, so the selection can land somewhere sensible instead of
+        // jumping to the top of the list.
+        let index = entries.firstIndex { $0.url == url }
+        do {
+            try MeetingAdmin.trash(session: url)
+            error = nil
+        } catch {
+            self.error = "\(error)"
+            return
+        }
+        entries = MeetingLibrary.entries(in: root)
+        if selection == url {
+            // Deleting the last meeting leaves nothing to select.
+            selection = entries.isEmpty
+                ? nil
+                : entries[Swift.min(index ?? 0, entries.count - 1)].url
+        }
+        loadSelected()
+    }
+
+    func revealInFinder(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting(
-            [selected.url.appendingPathComponent("meeting.md")])
+            [url.appendingPathComponent("meeting.md")])
     }
 
     func summarize() {
@@ -218,6 +256,12 @@ final class HistoryModel: MeetingDetailModel {
 
 struct HistoryView: View {
     @Bindable var model: HistoryModel
+    /// Non-nil while the corresponding sheet is up. Held as entries rather than
+    /// as booleans so the prompts can name the meeting they act on — "Delete
+    /// this meeting?" is a worse question than naming it.
+    @State private var renaming: MeetingEntry?
+    @State private var deleting: MeetingEntry?
+    @State private var draftTitle = ""
 
     var body: some View {
         NavigationSplitView {
@@ -233,6 +277,60 @@ struct HistoryView: View {
             }
         }
         .onAppear { model.reload() }
+        .alert(
+            "Rename meeting",
+            isPresented: Binding(
+                get: { renaming != nil },
+                set: { if !$0 { renaming = nil } })
+        ) {
+            TextField("Title", text: $draftTitle)
+            Button("Rename") {
+                if let entry = renaming { model.renameMeeting(entry.url, to: draftTitle) }
+                renaming = nil
+            }
+            .disabled(draftTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+            Button("Cancel", role: .cancel) { renaming = nil }
+        } message: {
+            Text("The folder is renamed to match. Summarising again won't overwrite it.")
+        }
+        .confirmationDialog(
+            deleting.map { "Move “\($0.title)” to the Trash?" } ?? "",
+            isPresented: Binding(
+                get: { deleting != nil },
+                set: { if !$0 { deleting = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Move to Trash", role: .destructive) {
+                if let entry = deleting { model.deleteMeeting(entry.url) }
+                deleting = nil
+            }
+            Button("Cancel", role: .cancel) { deleting = nil }
+        } message: {
+            // The audio is long gone by now, so this really is the only copy.
+            Text("The recording was deleted after transcription, so the notes, "
+                + "transcript and summary are the only copy.")
+        }
+    }
+
+    /// Every per-meeting action, in one place.
+    ///
+    /// None of these is the reason the window exists — reading the summary and
+    /// regenerating it are, and both are in the detail pane. Opening the file,
+    /// revealing it, renaming and deleting are all escape hatches, so they sit
+    /// behind one menu instead of lining the header with buttons that compete
+    /// with the content. The same builder backs the row context menu, so a
+    /// right-click and the header menu can never offer different things.
+    @ViewBuilder
+    private func rowActions(for entry: MeetingEntry) -> some View {
+        Button("Open in editor") { model.openInEditor(entry.url) }
+        Button("Reveal in Finder") { model.revealInFinder(entry.url) }
+        Divider()
+        Button("Rename…") {
+            draftTitle = entry.title
+            renaming = entry
+        }
+        Divider()
+        Button("Delete…", role: .destructive) { deleting = entry }
     }
 
     private var list: some View {
@@ -259,6 +357,7 @@ struct HistoryView: View {
                     }
                 }
                 .tag(entry.url)
+                .contextMenu { rowActions(for: entry) }
             }
         }
         .navigationSplitViewColumnWidth(min: 220, ideal: 260)
@@ -299,8 +398,24 @@ struct HistoryView: View {
                         Text(entry.subtitle).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Open in editor") { model.openInEditor() }
-                    Button("Reveal") { model.revealInFinder() }
+                    // `.button` is what makes a Menu adopt the same bordered
+                    // chrome as a plain Button; the borderless style sits at a
+                    // different baseline and reads as debris. The indicator
+                    // arrow is hidden because the ellipsis already says "more".
+                    // The label is *text*, not an SF Symbol: a bordered control
+                    // sizes itself from its label, and an image label is short
+                    // enough to come out half the height of the text buttons
+                    // beside it. A text glyph inherits the same line metrics
+                    // they do, so the heights match by construction rather than
+                    // by a hardcoded frame that would drift with the font.
+                    Menu {
+                        rowActions(for: entry)
+                    } label: {
+                        Text("⋯")
+                    }
+                    .menuStyle(.button)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
                 }
             }
 

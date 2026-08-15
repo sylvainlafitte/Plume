@@ -226,4 +226,33 @@ enum MeetingDocument {
             region, with: body, in: existing, path: url.lastPathComponent)
         try write(updated, to: url)
     }
+
+    /// Read the file, change frontmatter keys, write it back — leaving every
+    /// region untouched.
+    ///
+    /// Setting a key that isn't there appends it; the ordered-pairs shape is
+    /// what keeps a hand-edited file's key order stable (invariant 1's spirit:
+    /// rewrite only what was asked for).
+    static func updateFrontmatter(
+        at url: URL, _ mutate: (inout [(String, String)]) -> Void
+    ) throws {
+        let document = try String(contentsOf: url, encoding: .utf8)
+        var pairs = frontmatter(in: document)
+        mutate(&pairs)
+        guard let end = document.range(of: "\n---\n") else {
+            throw DocumentError.missingMarker(
+                region: "frontmatter", marker: "closing ---", path: url.lastPathComponent)
+        }
+        try write(
+            renderFrontmatter(pairs) + String(document[end.upperBound...]), to: url)
+    }
+
+    /// Set a key, replacing it in place or appending it.
+    static func setValue(_ value: String, for key: String, in pairs: inout [(String, String)]) {
+        if let index = pairs.firstIndex(where: { $0.0 == key }) {
+            pairs[index] = (key, value)
+        } else {
+            pairs.append((key, value))
+        }
+    }
 }

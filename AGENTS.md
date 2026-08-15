@@ -25,7 +25,9 @@ Audio is deleted after transcription, so most damage here cannot be undone.
    region only on success.
 3. **Derived names are proposals, not facts.** Inferred speaker names wait for one human click
    in `.plume/proposals.json`. A wrong name puts words in a real person's mouth — worse than an
-   honest `S1`.
+   honest `S1`. The same rule covers **titles**: a renamed meeting carries
+   `title_source: user`, and auto-titling must skip it — otherwise the next Regenerate silently
+   undoes the rename.
 4. **The user's Notes are theirs.** Nothing reformats them: no imposed bullets, no automatic
    timestamps, no structural markers.
 5. **Capture health is only knowable empirically.** A tap without permission returns `noErr`,
@@ -34,6 +36,9 @@ Audio is deleted after transcription, so most damage here cannot be undone.
    Nothing cheaper is true.
 6. **Audio is deleted immediately after transcription, by decision.** Tune against the
    held-aside corpus, never against a real meeting.
+7. **Deleting a meeting means the Trash** (`FileManager.trashItem`), never `removeItem`. By the
+   time a meeting is listed its audio is already gone, so `meeting.md` is the only copy of
+   something that cannot be reproduced from anything else.
 
 ## 2. Deliberate, not missing
 
@@ -104,11 +109,17 @@ meeting. Send `num_ctx: 32768`, `truncate: false`, `shift: false`; the 400 you g
 carries the token counts that size the map-reduce fallback. Use `127.0.0.1`. Unload *our* model
 only — Ollama is shared.
 
-**The panel is two windows and must stay that way.** `.titled` is needed to become key so you
-can type while a call stays frontmost, but it carries an invisible ~28pt titlebar: below that
+**The panel is three windows and must stay that way** — because what separates them lives in
+`styleMask`, which cannot be mutated after init. `.titled` is needed to become key so you can
+type while a call stays frontmost, but it carries an invisible ~28pt titlebar: below that
 height `contentLayoutRect` collapses to **zero** and SwiftUI lays content out below the visible
-window. Hence the 22pt pill is `.borderless`. Three more rules the panel depends on, none of
-them enforced by anything:
+window. Hence the 22pt pill is `.borderless`. And **wrap-up is an ordinary `NSWindow`**, not a
+floating non-activating panel: the reasons to float expire at Stop, and more importantly a
+`.nonactivatingPanel` can be *key while another app is active*, where ⌘C reaches nothing —
+key equivalents route through the **active** app's main menu. Wrap-up is where a summary gets
+copied out, so it cannot be that kind of window. Level and `collectionBehavior` *are* safe to
+mutate; `styleMask` is not, which is why this is a third window rather than a mode.
+Three more rules the panel depends on, none of them enforced by anything:
 
 - `isMovableByWindowBackground` must stay **off**. On, any drag on content moves the window,
   which silently breaks drag-to-select and swallows drags on the pill. Headers and the pill
