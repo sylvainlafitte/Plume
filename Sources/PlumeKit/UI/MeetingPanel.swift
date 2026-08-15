@@ -1,27 +1,30 @@
 import AppKit
 import SwiftUI
 
-/// The floating panel: a compact strip during a call, an expanded wrap-up pane
-/// after it.
+/// The floating panel: a collapsed pill, a strip during a call, an expanded
+/// wrap-up pane after it.
 ///
-/// Configuration verified in Spike B on macOS 26.5.1 — see
-/// spikes/panel/RESULTS.md. Two flags carry the weight:
+/// **Two windows, deliberately.** Configuration verified in Spike B on macOS
+/// 26.5.1 (spikes/panel/RESULTS.md):
 ///
-/// - `.nonactivatingPanel` means clicking the panel does **not** activate Plume,
-///   so Zoom stays frontmost and the call keeps running normally.
-/// - `.titled` (not `.borderless`) is what lets the panel become key, which is
-///   what lets you type into it. A borderless panel cannot become key without
-///   overriding `canBecomeKey`; with `.titled` no override is needed.
+/// - The expanded states use `[.nonactivatingPanel, .titled, .fullSizeContentView]`.
+///   `.nonactivatingPanel` means clicking doesn't activate Plume, so a video call
+///   stays frontmost; `.titled` is what lets the panel become key, which is what
+///   lets you type into it. `.borderless` cannot become key without overriding
+///   `canBecomeKey`.
+/// - The pill is a separate `.borderless` window, because it only gets clicked.
 ///
-/// `sharingType = .none` genuinely excludes the panel from screen capture on
-/// this OS — measured, not assumed. It is still best-effort rather than a
-/// guarantee, so the UI promises nothing and a hide hotkey exists regardless.
+/// The split exists for a measured reason. A titled window carries an invisible
+/// ~28pt titlebar, and at 22pt tall its `contentLayoutRect` collapses to **zero
+/// height** — logged, after three failed attempts to work around it by other
+/// means. SwiftUI derives its safe area from that rect, so the pill's content
+/// was laid out below the visible window regardless of `ignoresSafeArea`. A
+/// borderless window has no titlebar to fight.
 @MainActor
 final class MeetingPanel {
 
     enum Mode: Equatable {
-        /// Collapsed to a small floating pill — the resting state when you want
-        /// the screen back. Click it to expand.
+        /// Collapsed to a small floating pill. Click to expand.
         case pill
         /// Live: notes field, never steals focus.
         case recording
@@ -29,112 +32,147 @@ final class MeetingPanel {
         case wrapUp
     }
 
-    private var panel: NSPanel?
-    private var hosting: NSHostingView<AnyView>?
+    private var main: NSPanel?
+    private var mainHosting: NSHostingView<AnyView>?
+    private var pill: NSPanel?
+    private var pillHosting: NSHostingView<AnyView>?
     private(set) var mode: Mode = .recording
 
     private static let pillSize = NSSize(width: 62, height: 22)
     private static let stripSize = NSSize(width: 340, height: 300)
     private static let wrapUpSize = NSSize(width: 430, height: 580)
 
-    private static func size(for mode: Mode) -> NSSize {
-        switch mode {
-        case .pill: return pillSize
-        case .recording: return stripSize
-        case .wrapUp: return wrapUpSize
+    func show(_ mode: Mode, content: some View) {
+        self.mode = mode
+        if mode == .pill {
+            showPill(content)
+        } else {
+            showMain(mode, content)
         }
     }
 
-    func show(_ mode: Mode, content: some View) {
-        self.mode = mode
-        let panel = ensurePanel()
-        // `.titled` reserves a titlebar-height safe area even when the titlebar
-        // is transparent and hidden, and SwiftUI dutifully insets below it —
-        // which showed up as a band of dead space above our own header, and as
-        // a cropped clock in the pill. We draw all our chrome ourselves, so
-        // there is nothing to leave room for.
-        hosting?.rootView = AnyView(content.ignoresSafeArea())
+    // MARK: - Expanded states
 
-        let target = Self.size(for: mode)
+    private func showMain(_ mode: Mode, _ content: some View) {
+        let panel = ensureMain()
+        // The titlebar is transparent and hidden but still reserves a safe area;
+        // we draw all our own chrome, so there is nothing to leave room for.
+        mainHosting?.rootView = AnyView(content.ignoresSafeArea())
+
+        let target = mode == .recording ? Self.stripSize : Self.wrapUpSize
         if panel.frame.size != target {
-            // Resize rather than restyle. Mutating styleMask after init leaves
-            // the window server's activation tag stale, after which typing into
-            // a text field silently stops working (Spike B, M4).
+            // Not animated: the content is already the new mode's, so an
+            // animated resize would spend its whole duration drawing the new
+            // content at the old size.
             var frame = panel.frame
             frame.origin.y += frame.size.height - target.height
             frame.size = target
-            panel.setFrame(frame, display: true, animate: true)
+            panel.setFrame(frame, display: true, animate: false)
         }
 
-        // A rectangular window shadow around a capsule reads as a crop; drop it
-        // for the pill and restore it for the expanded states.
-        panel.hasShadow = mode != .pill
+        // Expanding from the pill: keep the same top-right corner.
+        if let pill, pill.isVisible {
+            var frame = panel.frame
+            frame.origin.x = pill.frame.maxX - frame.width
+            frame.origin.y = pill.frame.maxY - frame.height
+            panel.setFrame(frame, display: false)
+            pill.orderOut(nil)
+        }
 
         panel.orderFrontRegardless()
-        // Never grab focus for the pill: it exists to be out of the way.
         if mode == .wrapUp {
-            // The call is over; a comfortable typing surface is now worth more
+            // The call is over; a comfortable typing surface now matters more
             // than staying out of the way.
             NSApp.activate(ignoringOtherApps: true)
             panel.makeKeyAndOrderFront(nil)
         }
     }
 
+    // MARK: - Collapsed pill
+
+    private func showPill(_ content: some View) {
+        let pill = ensurePill()
+        pillHosting?.rootView = AnyView(content)
+
+        // Anchor to the expanded panel's top-right so collapsing doesn't jump.
+        if let main, main.isVisible {
+            pill.setFrameOrigin(NSPoint(
+                x: main.frame.maxX - Self.pillSize.width,
+                y: main.frame.maxY - Self.pillSize.height))
+            main.orderOut(nil)
+        }
+        pill.orderFrontRegardless()
+    }
+
+    // MARK: - Visibility
+
+    var isVisible: Bool { (main?.isVisible ?? false) || (pill?.isVisible ?? false) }
+
     func hide() {
-        // Also drop the SwiftUI tree: a hidden hosting view otherwise keeps
+        // Drop the SwiftUI trees too: a hidden hosting view otherwise keeps
         // participating in layout and observation every frame.
-        hosting?.rootView = AnyView(EmptyView())
-        panel?.orderOut(nil)
+        mainHosting?.rootView = AnyView(EmptyView())
+        pillHosting?.rootView = AnyView(EmptyView())
+        main?.orderOut(nil)
+        pill?.orderOut(nil)
     }
 
-    var isVisible: Bool { panel?.isVisible ?? false }
-
-    func toggleVisibility() {
-        if isVisible { hide() } else { panel?.orderFrontRegardless() }
-    }
-
-    /// Bring the panel forward *and* focus it, for the summon hotkey.
     func focus() {
-        guard let panel else { return }
-        panel.orderFrontRegardless()
+        guard let main else { return }
+        main.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
+        main.makeKeyAndOrderFront(nil)
     }
 
-    private func ensurePanel() -> NSPanel {
-        if let panel { return panel }
+    // MARK: - Construction
 
-        let panel = NSPanel(
-            contentRect: NSRect(origin: .zero, size: Self.stripSize),
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
+    private func applyShared(to panel: NSPanel) {
         panel.isFloatingPanel = true
         panel.level = .floating
-        panel.titlebarAppearsTransparent = true
-        panel.titleVisibility = .hidden
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
         panel.isMovableByWindowBackground = true
         panel.animationBehavior = .utilityWindow
         panel.hidesOnDeactivate = false
         // Follow the user across Spaces and survive over a full-screen call.
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Genuinely excludes the window from screen capture on this OS —
+        // measured in Spike B. Still best-effort, so the UI promises nothing.
         panel.sharingType = .none
-        panel.setFrameAutosaveName("PlumeMeetingPanel")
+        panel.minSize = NSSize(width: 1, height: 1)
+        panel.contentMinSize = NSSize(width: 1, height: 1)
+    }
 
-        // `.titled` is needed to become key (Spike B), but the buttons that
-        // normally come with it are replaced by our own — see PanelControls.
+    private func hostingView(in panel: NSPanel) -> NSHostingView<AnyView> {
+        let hosting = NSHostingView(rootView: AnyView(EmptyView()))
+        hosting.frame = panel.contentView?.bounds ?? .zero
+        hosting.autoresizingMask = [.width, .height]
+        // Never let SwiftUI's intrinsic size drive the window: the first
+        // re-layout after a resize — the once-a-second clock sufficed — would
+        // otherwise snap it back to the content's preferred size.
+        hosting.sizingOptions = []
+        panel.contentView = hosting
+        return hosting
+    }
+
+    private func ensureMain() -> NSPanel {
+        if let main { return main }
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: Self.stripSize),
+            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false)
+        applyShared(to: panel)
+        panel.titlebarAppearsTransparent = true
+        panel.titleVisibility = .hidden
+        panel.hasShadow = true
+        panel.setFrameAutosaveName("PlumeMeetingPanel")
+        // `.titled` brings buttons that PanelControls replaces.
         for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             panel.standardWindowButton(button)?.isHidden = true
         }
 
-        let hosting = NSHostingView(rootView: AnyView(EmptyView()))
-        hosting.frame = panel.contentView?.bounds ?? .zero
-        hosting.autoresizingMask = [.width, .height]
-        panel.contentView = hosting
+        mainHosting = hostingView(in: panel)
 
         if panel.frame.origin == .zero, let screen = NSScreen.main {
             let visible = screen.visibleFrame
@@ -142,9 +180,22 @@ final class MeetingPanel {
                 x: visible.maxX - Self.stripSize.width - 24,
                 y: visible.maxY - Self.stripSize.height - 24))
         }
+        main = panel
+        return panel
+    }
 
-        self.panel = panel
-        self.hosting = hosting
+    private func ensurePill() -> NSPanel {
+        if let pill { return pill }
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: Self.pillSize),
+            styleMask: [.nonactivatingPanel, .borderless],
+            backing: .buffered,
+            defer: false)
+        applyShared(to: panel)
+        // A rectangular window shadow around a capsule reads as a crop.
+        panel.hasShadow = false
+        pillHosting = hostingView(in: panel)
+        pill = panel
         return panel
     }
 }
