@@ -121,60 +121,60 @@ struct NotesStoreTests {
         return url
     }
 
-    @Test("notes taken during the call are stamped with elapsed time")
-    func stampedDuringCall() {
-        #expect(NotesStore.trimmedLine("check pricing", elapsed: 124) == "- [2:04] check pricing")
-        #expect(NotesStore.trimmedLine("later", elapsed: 3725) == "- [1:02:05] later")
+    @Test("timestamps are inserted on request, never automatically")
+    func stampOnRequest() {
+        // Auto-stamping every line was dropped: stamps went stale on edit, and
+        // most notes are general observations a precise time misrepresents.
+        #expect(NotesStore.stamp(124) == "[2:04] ")
+        #expect(NotesStore.stamp(3725) == "[1:02:05] ")
     }
 
-    @Test("notes added after the call carry no timestamp")
-    func unstampedAfterCall() {
-        #expect(NotesStore.trimmedLine("final thought", elapsed: nil) == "- final thought")
+    @Test("inserting a stamp starts a fresh line, ready to type after")
+    func stampStartsNewLine() {
+        #expect(NotesStore.appendingStamp(to: "", elapsed: 65) == "[1:05] ")
+        #expect(NotesStore.appendingStamp(to: "a thought", elapsed: 65)
+            == "a thought\n[1:05] ")
+        // Already at a line start — don't add a blank line.
+        #expect(NotesStore.appendingStamp(to: "a thought\n", elapsed: 65)
+            == "a thought\n[1:05] ")
     }
 
-    @Test("blank input is ignored rather than writing an empty bullet")
-    func blankIgnored() {
-        #expect(NotesStore.trimmedLine("   \n ", elapsed: 10).isEmpty)
-    }
-
-    @Test("appending is crash-safe and accumulates in order")
-    func appending() throws {
+    @Test("the wrap-up divider is separated by blank lines")
+    func wrapUpIsSeparated() throws {
+        // It previously rendered flush against the last note and read as part
+        // of it.
         let session = tempSession()
         defer { try? FileManager.default.removeItem(at: session) }
 
-        try NotesStore.append("first", elapsed: 5, to: session)
-        try NotesStore.append("second", elapsed: 65, to: session)
-
-        let contents = NotesStore.read(from: session)
-        #expect(contents == "- [0:05] first\n- [1:05] second\n")
+        try NotesStore.write("a thought", to: session)
+        let updated = try NotesStore.markWrapUp(in: session)
+        #expect(updated.contains("a thought\n\n" + NotesStore.wrapUpMarker))
     }
 
-    @Test("the wrap-up marker is written once and only after real notes")
-    func wrapUpMarker() throws {
+    @Test("the divider is written once, and never into empty notes")
+    func wrapUpIdempotent() throws {
         let session = tempSession()
         defer { try? FileManager.default.removeItem(at: session) }
 
-        // Nothing typed yet — no point marking a boundary in an empty file.
-        try NotesStore.markWrapUp(in: session)
+        // Nothing typed — no boundary worth marking.
+        _ = try NotesStore.markWrapUp(in: session)
         #expect(NotesStore.read(from: session).isEmpty)
 
-        try NotesStore.append("during", elapsed: 5, to: session)
-        try NotesStore.markWrapUp(in: session)
-        try NotesStore.markWrapUp(in: session)
-
+        try NotesStore.write("during", to: session)
+        _ = try NotesStore.markWrapUp(in: session)
+        _ = try NotesStore.markWrapUp(in: session)
         let occurrences = NotesStore.read(from: session)
             .components(separatedBy: NotesStore.wrapUpMarker).count - 1
         #expect(occurrences == 1)
     }
 
-    @Test("wrap-up editing replaces the whole file")
-    func wholeFileEditing() throws {
+    @Test("notes round-trip as free text, unchanged")
+    func freeTextRoundTrip() throws {
         let session = tempSession()
         defer { try? FileManager.default.removeItem(at: session) }
-
-        try NotesStore.append("typo hree", elapsed: 5, to: session)
-        // "Add last thoughts before summarising" implies tidying, not only appending.
-        try NotesStore.write("- [0:05] typo here\n- cleaned up\n", to: session)
-        #expect(NotesStore.read(from: session) == "- [0:05] typo here\n- cleaned up\n")
+        // No bullets imposed, no reformatting — the user's text is the file.
+        let text = "just prose\nand a second line\n\n[3:20] anchored to a moment\n"
+        try NotesStore.write(text, to: session)
+        #expect(NotesStore.read(from: session) == text)
     }
 }

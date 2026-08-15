@@ -30,6 +30,9 @@ final class MeetingPanelController {
     private var speakerRows: [SpeakerRow] = []
     private var transcriptReady = false
     private var pollTimer: Timer?
+    private var saveTimer: Timer?
+    /// What the panel returns to when expanded from the pill.
+    private var expandedMode: MeetingPanel.Mode = .recording
 
     var isVisible: Bool { panel.isVisible }
 
@@ -47,48 +50,70 @@ final class MeetingPanelController {
         transcriptReady = false
         speakerRows = []
         tab = .notes
+        expandedMode = .recording
         render(.recording)
     }
 
     func tick() {
-        guard panel.isVisible, panel.mode == .recording else { return }
-        render(.recording)
+        guard panel.isVisible, panel.mode == .recording || panel.mode == .pill else { return }
+        render(panel.mode)
     }
+
+    /// Collapse to the pill, or expand back to whatever state we were in.
+    func collapse() { render(.pill) }
+    func expand() { render(expandedMode) }
+
+    /// True once a meeting exists to show — the menubar item is meaningless
+    /// before that.
+    var hasSession: Bool { session != nil }
 
     func stoppedRecording() {
         guard let session else { return }
-        try? NotesStore.markWrapUp(in: session)
-        notes = NotesStore.read(from: session)
+        flushNotes()
+        notes = (try? NotesStore.markWrapUp(in: session)) ?? NotesStore.read(from: session)
         transcriptReady = false
         tab = .notes
+        expandedMode = .wrapUp
         render(.wrapUp)
         // meeting.md appears when transcription finishes; poll for it rather
         // than coupling the panel to the coordinator's internals.
         startPolling()
     }
 
-    func toggleVisibility() { panel.toggleVisibility() }
-    func focus() { panel.focus() }
+    func focus() {
+        if panel.mode == .pill { expand() } else { render(panel.mode) }
+        panel.focus()
+    }
 
     // MARK: - Notes
 
-    private func appendNote(_ text: String) {
-        guard let session, let startedAt else { return }
-        try? NotesStore.append(text, elapsed: Date().timeIntervalSince(startedAt), to: session)
+    /// Insert a timestamp at the end of the notes, on request only.
+    private func insertStamp() {
+        guard let startedAt else { return }
+        notes = NotesStore.appendingStamp(
+            to: notes, elapsed: Date().timeIntervalSince(startedAt))
+        scheduleSave()
+        render(panel.mode)
     }
 
-    /// Wrap-up edits replace the whole file, so save on change.
-    private func saveNotes() {
+    /// Debounced whole-file save. Notes are free text now, so every keystroke
+    /// would otherwise rewrite the file; a short delay keeps that to a trickle
+    /// while risking at most a second or two of typing on a crash.
+    private func scheduleSave() {
+        saveTimer?.invalidate()
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flushNotes() }
+        }
+    }
+
+    private func flushNotes() {
+        saveTimer?.invalidate()
+        saveTimer = nil
         guard let session else { return }
         try? NotesStore.write(notes, to: session)
         // If the transcript is already written, keep meeting.md's Notes region
         // in step — otherwise a summary would read a stale copy.
         syncNotesRegion()
-    }
-
-    private func flushNotes() {
-        guard session != nil, !notes.isEmpty else { return }
-        saveNotes()
     }
 
     private func syncNotesRegion() {
@@ -145,6 +170,9 @@ final class MeetingPanelController {
 
     private func summarize() {
         guard let session, !isGenerating else { return }
+        // Debounced edits must reach disk before the engine reads them.
+        flushNotes()
+        tab = .summary
         isGenerating = true
         error = nil
         summary = ""
@@ -230,17 +258,30 @@ final class MeetingPanelController {
 
     // MARK: - Rendering
 
+    private var elapsedText: String {
+        startedAt.map { NotesStore.clock(Date().timeIntervalSince($0)) } ?? "0:00"
+    }
+
     private func render(_ mode: MeetingPanel.Mode) {
         switch mode {
+        case .pill:
+            panel.show(
+                .pill,
+                content: MeetingPillView(
+                    isRecording: expandedMode == .recording,
+                    elapsed: elapsedText,
+                    onExpand: { [weak self] in self?.expand() }))
         case .recording:
-            let elapsed = startedAt.map { NotesStore.clock(Date().timeIntervalSince($0)) } ?? "0:00"
             panel.show(
                 .recording,
                 content: RecordingStripView(
-                    elapsed: elapsed,
-                    onNote: { [weak self] in self?.appendNote($0) },
+                    elapsed: elapsedText,
+                    notes: Binding(
+                        get: { self.notes },
+                        set: { self.notes = $0; self.scheduleSave() }),
+                    onStamp: { [weak self] in self?.insertStamp() },
                     onStop: { [weak self] in self?.onStopRequested?() },
-                    onHide: { [weak self] in self?.panel.hide() }))
+                    onCollapse: { [weak self] in self?.collapse() }))
         case .wrapUp:
             panel.show(
                 .wrapUp,
@@ -248,7 +289,7 @@ final class MeetingPanelController {
                     tab: Binding(get: { self.tab }, set: { self.tab = $0; self.render(.wrapUp) }),
                     notes: Binding(
                         get: { self.notes },
-                        set: { self.notes = $0; self.saveNotes() }),
+                        set: { self.notes = $0; self.scheduleSave() }),
                     title: session?.lastPathComponent ?? "Meeting",
                     transcriptReady: transcriptReady,
                     summary: summary,
@@ -259,9 +300,9 @@ final class MeetingPanelController {
                         set: { self.templateID = $0; self.render(.wrapUp) }),
                     speakers: speakerRows,
                     error: error,
-                    onSaveNotes: { [weak self] in self?.saveNotes() },
                     onSummarize: { [weak self] in self?.summarize() },
                     onOpenInEditor: { [weak self] in self?.openInEditor() },
+                    onCollapse: { [weak self] in self?.collapse() },
                     onRename: { [weak self] in self?.rename($0, to: $1) },
                     onMerge: { [weak self] in self?.merge($0, into: $1) }))
         }

@@ -250,6 +250,7 @@ final class AppController {
             state.recording = .recording(since: newSession.startedAt)
             state.clearFailure()
             meetingPanel.startedRecording(session: newSession.dir, at: newSession.startedAt)
+            state.hasPanelSession = true
             FileHandle.standardError.write(Data("● recording → \(newSession.dir.path)\n".utf8))
         } catch {
             state.report("recording failed to start: \(error)")

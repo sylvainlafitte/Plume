@@ -19,8 +19,11 @@ import SwiftUI
 @MainActor
 final class MeetingPanel {
 
-    enum Mode {
-        /// Live: small, unobtrusive, never steals focus.
+    enum Mode: Equatable {
+        /// Collapsed to a small floating pill — the resting state when you want
+        /// the screen back. Click it to expand.
+        case pill
+        /// Live: notes field, never steals focus.
         case recording
         /// Stopped: expanded, focused, waiting for wrap-up notes and a summary.
         case wrapUp
@@ -30,15 +33,24 @@ final class MeetingPanel {
     private var hosting: NSHostingView<AnyView>?
     private(set) var mode: Mode = .recording
 
-    private static let stripSize = NSSize(width: 320, height: 132)
-    private static let wrapUpSize = NSSize(width: 420, height: 560)
+    private static let pillSize = NSSize(width: 132, height: 34)
+    private static let stripSize = NSSize(width: 340, height: 300)
+    private static let wrapUpSize = NSSize(width: 430, height: 580)
+
+    private static func size(for mode: Mode) -> NSSize {
+        switch mode {
+        case .pill: return pillSize
+        case .recording: return stripSize
+        case .wrapUp: return wrapUpSize
+        }
+    }
 
     func show(_ mode: Mode, content: some View) {
         self.mode = mode
         let panel = ensurePanel()
         hosting?.rootView = AnyView(content)
 
-        let target = mode == .recording ? Self.stripSize : Self.wrapUpSize
+        let target = Self.size(for: mode)
         if panel.frame.size != target {
             // Resize rather than restyle. Mutating styleMask after init leaves
             // the window server's activation tag stale, after which typing into
@@ -50,6 +62,7 @@ final class MeetingPanel {
         }
 
         panel.orderFrontRegardless()
+        // Never grab focus for the pill: it exists to be out of the way.
         if mode == .wrapUp {
             // The call is over; a comfortable typing surface is now worth more
             // than staying out of the way.

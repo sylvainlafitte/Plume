@@ -10,6 +10,7 @@ final class MenuBarController {
     private let transcriptionLabel: NSMenuItem
     private let failureItem: NSMenuItem
     private let toggleItem: NSMenuItem
+    private let panelItem: NSMenuItem
 
     var onToggle: (() -> Void)?
     var onOpenFolder: (() -> Void)?
@@ -57,7 +58,7 @@ final class MenuBarController {
         )
         menu.addItem(openFolder)
 
-        let panelItem = NSMenuItem(
+        panelItem = NSMenuItem(
             title: "Show notes panel",
             action: #selector(togglePanelClicked),
             keyEquivalent: "n"
@@ -113,6 +114,9 @@ final class MenuBarController {
             ? "● recording · \(state.elapsedText ?? "0:00")"
             : (state.pendingCount > 0 ? "idle · \(state.pendingCount) pending" : "idle")
         toggleItem.title = isRecording ? "Stop recording" : "Start recording"
+        // Pointless before a meeting exists; enabled-but-inert is worse than absent.
+        panelItem.isEnabled = state.hasPanelSession
+        panelItem.title = isRecording ? "Show notes panel" : "Show last meeting"
         statusItem.button?.contentTintColor = isRecording ? .systemRed : nil
 
         switch state.transcription {

@@ -52,6 +52,10 @@ public final class AppState {
     /// visible rather than inferred from a folder listing.
     public var pendingCount: Int = 0
 
+    /// Whether the meeting panel has something to show. Drives the menubar
+    /// item's enabled state — an action that does nothing is worse than none.
+    public var hasPanelSession: Bool = false
+
     public init() {}
 
     public func report(_ message: String) {
