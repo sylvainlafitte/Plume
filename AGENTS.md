@@ -309,6 +309,11 @@ gone gets re-transcribed into nothing.
 the commit message**. Upstream merges almost nothing, so don't expect to pull. Note the PRs are
 mutually unaware: combining two correct ones has twice produced a bug.
 
+**Because that remote exists, `gh` with no `--repo` resolves to digimata/quill, not this fork** —
+`gh repo view` returns *quill's* description and visibility. Harmless while reading, public and
+embarrassing for anything that writes: always spell out `--repo sylvainlafitte/Plume` on
+`gh release`, `gh issue` and `gh pr`.
+
 Match Quill's voice — small files, comments explaining *why* a non-obvious thing is done. No new
 dependencies without a note in PROGRESS.md saying what they replaced.
 
