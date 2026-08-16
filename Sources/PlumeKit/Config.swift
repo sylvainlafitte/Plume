@@ -21,6 +21,7 @@ struct Settings: Codable, Sendable, Equatable {
     var summaryModel: String?
     var summaryContextTokens: Int?
     var defaultTemplate: String?
+    var disclosureText: String?
     var transcription: Transcription?
 
     enum CodingKeys: String, CodingKey {
@@ -33,6 +34,7 @@ struct Settings: Codable, Sendable, Equatable {
         case summaryModel = "summary_model"
         case summaryContextTokens = "summary_context_tokens"
         case defaultTemplate = "default_template"
+        case disclosureText = "disclosure_text"
         case transcription
     }
 }
@@ -179,6 +181,27 @@ enum Config {
     /// Template id used when none is chosen for a meeting.
     static func defaultTemplate() -> String {
         current().defaultTemplate ?? "general"
+    }
+
+    /// One line to paste into the meeting chat, telling the other participants
+    /// they are being recorded (PLAN R4).
+    ///
+    /// Configurable because the *right* wording is jurisdictional and Plume
+    /// cannot know yours: recording a private conversation without the
+    /// participants' knowledge is a criminal offence in France (Code pénal
+    /// art. 226-1) and in the US two-party-consent states. The default is
+    /// written to be sufficient where notice is enough and a reasonable opening
+    /// where consent is required — which is why it ends with an out. It is
+    /// deliberately **not** posted for you: Plume is not in the call, and an
+    /// automatic announcement would be a claim about a chat it cannot see.
+    static func disclosureText() -> String {
+        let configured = current().disclosureText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let configured, !configured.isEmpty { return configured }
+        return """
+            Heads up — I'm recording this call and transcribing it on my own \
+            machine to write up notes. Nothing is uploaded anywhere. Say the \
+            word if you'd rather I didn't.
+            """
     }
 
     /// Resolve the recordings root from an optional CLI override.

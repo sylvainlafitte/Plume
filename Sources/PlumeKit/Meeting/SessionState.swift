@@ -48,6 +48,14 @@ struct SessionState: Codable, Equatable, Sendable {
         }
     }
 
+    /// On-disk format this build writes and understands.
+    ///
+    /// Bump when a change would make an *older* Plume misread a file a newer one
+    /// wrote — a new stage, a changed blocker shape, a key whose meaning moved.
+    /// Adding a key an older build simply ignores does not need a bump; that is
+    /// what `Codable`'s optionals already tolerate.
+    static let formatVersion = 1
+
     var stage: Stage
     var blocker: Blocker?
     var updated: Date
@@ -57,16 +65,23 @@ struct SessionState: Codable, Equatable, Sendable {
     /// because sessions recorded before this existed have no stamp.
     var machine: String?
 
+    /// Format that wrote this file. `nil` means it predates versioning, which is
+    /// version 1 by definition — the same tolerance `machine` gets, and for the
+    /// same reason: files written before the field existed must not be stranded.
+    var version: Int?
+
     init(
         stage: Stage = .recorded,
         blocker: Blocker? = nil,
         updated: Date = Date(),
-        machine: String? = MachineID.current
+        machine: String? = MachineID.current,
+        version: Int? = SessionState.formatVersion
     ) {
         self.stage = stage
         self.blocker = blocker
         self.updated = updated
         self.machine = machine
+        self.version = version
     }
 
     /// Whether this machine may do unattended work on the session.
@@ -79,8 +94,21 @@ struct SessionState: Codable, Equatable, Sendable {
         machine == nil || machine == MachineID.current
     }
 
+    /// Whether this build understands the file well enough to act on it.
+    ///
+    /// Forward tolerance is deliberately asymmetric. Reading a file from an
+    /// *older* Plume is fine — that is what the optional fields are for. Acting
+    /// on one from a *newer* Plume is not: we would be guessing at a stage
+    /// machine we don't know, and the first thing this pipeline does on a
+    /// `recorded` session is transcribe it and **delete the audio** (invariant
+    /// 6). Doing nothing is always recoverable; that deletion never is.
+    var isReadableByThisVersion: Bool {
+        (version ?? Self.formatVersion) <= Self.formatVersion
+    }
+
     /// Work remains and nothing is standing in the way.
     var isReadyForWork: Bool {
+        guard isReadableByThisVersion else { return false }
         guard stage < .summarized else { return false }
         switch blocker {
         case nil: return true

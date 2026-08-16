@@ -95,7 +95,11 @@ Audio is deleted after transcription, so most damage here cannot be undone.
    `<!-- plume:summary -->`, `<!-- plume:transcript -->`. Re-read from disk before every write,
    replace only between markers, and **fail loudly if a marker is missing** — never append a
    duplicate. Writes go through `FileManager.replaceItemAt`, never `Data.write(.atomic)`, which
-   swaps the inode and drops xattrs and Finder tags.
+   swaps the inode and drops xattrs and Finder tags. The version-skew case of the same rule:
+   every write path calls `MeetingDocument.checkWritable` and **refuses a document whose
+   frontmatter `plume:` declares a format newer than this build**. Add a write path, add the
+   check — `SpeakerEditing.apply` is the one that composes `replacing` + `write` itself and so
+   needs its own call. Tolerance runs one way only: older and missing are fine, newer is not.
 2. **A failed generation must never destroy a good one.** Stream into a buffer; replace the
    region only on success.
 3. **Derived names are proposals, not facts.** Inferred speaker names wait for one human click
@@ -139,6 +143,7 @@ an earlier design. **Don't "fix" them without asking.**
 | `transcription.enabled` has no toggle in Settings | Off, a recording rests at `recorded` forever — no transcript, no summary, no `meeting.md`. A switch that silently turns the whole app off doesn't belong beside ordinary preferences. The config key still works for the CLI. |
 | No Dock icon, and windows aren't in ⌘-Tab | Accessory apps are absent from ⌘-Tab **by rule**, not by window configuration — the only lever is `NSApp.setActivationPolicy(.regular)`, which brings a Dock icon and a real menu bar. Declined 2026-08-15. Windows are reached from the menu bar. |
 | `state.json` carries a `machine` id, and `resumePending` skips foreign sessions | For the case where the meetings root is a *synced* folder shared by two Macs. Looks like dead code on a single Mac — `isOwnedByThisMachine` is always true there, including for pre-stamp sessions, which is why it's `String?`. Without it the second Mac adopts the first's `recorded` session and transcribes audio that may still be downloading, then deletes it (invariant 6). Only the unattended path is guarded; recording enqueues its own session directly. The id lives beside `config.json`, never in the meetings root — it must not sync. |
+| Plume never announces the recording itself | The Disclosure button *copies* a line for you to paste (R4). It cannot post: Plume is not a participant and cannot see the call's chat, so an "announced" claim would be one it can't keep. Leaving the paste to a human also leaves them the judgement the app can't make — whether notice suffices where they are, and whether this is the moment. Wording is `disclosure_text`, because sufficiency is jurisdictional. |
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
 
 Genuinely **not built yet** (different thing): Phase 7 Ask — now scoped as its own **global** surface with the per-meeting tab as the
@@ -165,6 +170,12 @@ binary has no TCC identity — capture is attributed to the *responsible process
 terminal. Without that grant you get full-length silence with no error; with it, capture works
 while proving nothing about the app. Both were observed hours apart from one binary. Only the
 `.app` has a self-owned grant.
+
+**`CFBundleVersion` is stamped by the build, not by hand** — `git rev-list --count HEAD`, applied
+with PlistBuddy to the *staged* plist so the repo's copy stays the hand-set
+`CFBundleShortVersionString` only. v0.1.0 shipped with it stuck at `1`, and nothing caught it:
+codesign, notarization and Gatekeeper are all indifferent, so the failure lands later and elsewhere
+(LaunchServices not seeing an update as newer). Don't reintroduce a hand-set value.
 
 **`build-app.sh` stages in `/tmp` on purpose.** This repo is under `~/Documents`, which iCloud
 stamps with `com.apple.FinderInfo` — what codesign rejects as *"resource fork, Finder
@@ -299,7 +310,12 @@ class; quill#18 locked the fields that raced but the conformance still hides any
 **Pipeline state** is `.plume/state.json`: `recorded → transcribed → summarized`, plus
 `failed(stage,message)` / `needsPermission` / `cancelled`. Only transcription resumes
 automatically, and blocking must preserve the stage reached — otherwise a meeting whose audio is
-gone gets re-transcribed into nothing.
+gone gets re-transcribed into nothing. It also carries a `version`: `isReadyForWork` is false for
+anything newer than `SessionState.formatVersion`, so a session written by a future Plume is left
+alone rather than transcribed against a stage machine we're guessing at — the first thing that
+happens to a `recorded` session is that its audio is deleted. `nil` means pre-versioning and is
+tolerated, exactly like `machine`. **Both format versions are bumped only when a change would make
+this build misread a newer file** — adding a key that older builds ignore does not qualify.
 
 ## 5. Working habits
 

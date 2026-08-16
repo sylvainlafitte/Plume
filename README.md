@@ -78,4 +78,5 @@ your Mac. Tell participants when you are recording and follow the laws that appl
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Plume is a fork of [Quill](https://github.com/digimata/quill) —
+see [NOTICE](NOTICE) and [LICENSE-quill](LICENSE-quill).

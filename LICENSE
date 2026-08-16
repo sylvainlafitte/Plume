@@ -20,9 +20,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Plume is a fork of Quill (https://github.com/digimata/quill), copyright (c) 2026
-Andrew Jones, used under the MIT License. Portions of this software derive from
-that work, and its original licence notice is retained verbatim in LICENSE-quill.

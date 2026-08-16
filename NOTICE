@@ -1,0 +1,14 @@
+Plume
+Copyright (c) 2026 Sylvain Lafitte
+
+This product is a fork of Quill (https://github.com/digimata/quill),
+copyright (c) 2026 Andrew Jones, used under the MIT License. Portions of this
+software derive from that work.
+
+Quill's original licence notice is retained verbatim in LICENSE-quill, and
+Andrew Jones's copyright line is carried in LICENSE alongside ours — retaining
+the upstream notice is an obligation of the MIT License, not a courtesy.
+
+This note lives here rather than appended to LICENSE so that LICENSE contains
+the MIT text and nothing else: GitHub's licence detection matches the whole
+file, and trailing prose made it report the project as "Other" rather than MIT.

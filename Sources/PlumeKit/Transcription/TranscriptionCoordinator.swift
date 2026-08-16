@@ -198,7 +198,7 @@ actor TranscriptionCoordinator {
         // must never leave a completed transcript invisible on disk.
         let speakers = orderedSpeakers(in: merged)
         var frontmatter: [(String, String)] = [
-            ("plume", "1"),
+            (MeetingDocument.versionKey, "\(MeetingDocument.formatVersion)"),
             ("title", dir.lastPathComponent),
             ("started", Self.localTimestamp(meta.startedAt ?? Date())),
             ("duration_s", "\(meta.durationSeconds ?? 0)"),

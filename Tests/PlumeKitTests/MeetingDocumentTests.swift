@@ -204,3 +204,71 @@ struct RegionHeadingTests {
         #expect(MeetingDocument.stripLeadingHeading(.summary, from: body) == body)
     }
 }
+
+@Suite("Document format versioning")
+struct DocumentFormatTests {
+
+    private func tempDocument(plume: String?) throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).md")
+        var pairs: [(String, String)] = []
+        if let plume { pairs.append((MeetingDocument.versionKey, plume)) }
+        pairs.append(("title", "a meeting"))
+        try MeetingDocument.render(
+            frontmatter: pairs, notes: "mine", summary: "*pending*", transcript: "x"
+        ).write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    @Test("a document written by this build declares the current format")
+    func stampsCurrentVersion() {
+        let doc = MeetingDocument.render(
+            frontmatter: [(MeetingDocument.versionKey, "\(MeetingDocument.formatVersion)")],
+            transcript: "x")
+        #expect(MeetingDocument.declaredFormat(in: doc) == MeetingDocument.formatVersion)
+    }
+
+    @Test("a document with no plume key is treated as current, not as broken")
+    func missingKeyIsTolerated() throws {
+        // A hand-edited file that lost its frontmatter must stay editable —
+        // the same tolerance SessionState.machine gets.
+        let url = try tempDocument(plume: nil)
+        defer { try? FileManager.default.removeItem(at: url) }
+        #expect(MeetingDocument.declaredFormat(in: "") == nil)
+        try MeetingDocument.updateRegion(.notes, at: url, to: "still writable")
+        #expect(try MeetingDocument.read(.notes, from:
+            String(contentsOf: url, encoding: .utf8)) == "still writable")
+    }
+
+    @Test("a document from a newer Plume is refused, not rewritten")
+    func futureDocumentIsRefused() throws {
+        // The audio is already gone (invariant 6), so a bad rewrite of a format
+        // we don't understand cannot be regenerated from anything.
+        let url = try tempDocument(plume: "\(MeetingDocument.formatVersion + 1)")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let before = try String(contentsOf: url, encoding: .utf8)
+
+        #expect(throws: MeetingDocument.DocumentError.self) {
+            try MeetingDocument.updateRegion(.notes, at: url, to: "clobbered")
+        }
+        #expect(throws: MeetingDocument.DocumentError.self) {
+            try MeetingDocument.updateFrontmatter(at: url) { pairs in
+                MeetingDocument.setValue("new", for: "title", in: &pairs)
+            }
+        }
+        #expect(throws: MeetingDocument.DocumentError.self) {
+            try SpeakerEditing.apply(to: url) { _ in "clobbered" }
+        }
+        // The file is byte-identical: refusing must not half-write.
+        #expect(try String(contentsOf: url, encoding: .utf8) == before)
+    }
+
+    @Test("an older document is still writable — tolerance runs one way only")
+    func olderDocumentIsWritable() throws {
+        let url = try tempDocument(plume: "0")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try MeetingDocument.updateRegion(.notes, at: url, to: "fine")
+        #expect(try MeetingDocument.read(.notes, from:
+            String(contentsOf: url, encoding: .utf8)) == "fine")
+    }
+}

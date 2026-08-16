@@ -37,7 +37,26 @@ echo "▸ assembling $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 cp "$BIN" "$APP/Contents/MacOS/plume"
+
+# Stamp CFBundleVersion from the commit count, into the staged copy only.
+#
+# CFBundleShortVersionString is the user-facing number and stays hand-set in
+# Resources/Info.plist. CFBundleVersion must be a *monotonic build number*, and
+# v0.1.0 shipped with it stuck at 1 precisely because nothing enforced that:
+# codesign, notarization and Gatekeeper are all indifferent to it, so the mistake
+# surfaces much later and somewhere else — as LaunchServices declining to treat
+# a newer build as newer, and as an update check with nothing to compare.
+# `git rev-list --count` is monotonic by construction, needs no state file and no
+# discipline at release time. Skipped when git can't answer, so a source tarball
+# still builds; the plist's own value stands in.
+BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || true)"
+if [ -n "$BUILD_NUMBER" ]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" \
+        "$APP/Contents/Info.plist" >/dev/null
+    echo "▸ build number $BUILD_NUMBER (CFBundleVersion)"
+fi
 
 # com.apple.provenance rides along on everything macOS 14+ writes and is NOT
 # removable (xattr -c reports success and leaves it). codesign tolerates it.

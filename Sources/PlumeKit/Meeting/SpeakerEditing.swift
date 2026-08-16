@@ -93,6 +93,10 @@ enum SpeakerEditing {
         frontmatter: ((inout [(String, String)]) -> Void)? = nil
     ) throws {
         let document = try String(contentsOf: meetingURL, encoding: .utf8)
+        // Checked here as well as in `updateRegion`, because this path composes
+        // `replacing` + `write` itself rather than going through it — the one
+        // write path a guard on `updateRegion` alone would miss.
+        try MeetingDocument.checkWritable(document, path: meetingURL.lastPathComponent)
         let transcript = try MeetingDocument.read(
             .transcript, from: document, path: meetingURL.lastPathComponent)
         var updated = try MeetingDocument.replacing(

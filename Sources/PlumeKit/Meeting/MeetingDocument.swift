@@ -13,6 +13,18 @@ import Foundation
 /// long after the audio is gone.
 enum MeetingDocument {
 
+    /// Document format this build writes and understands, stamped as the
+    /// frontmatter `plume:` key.
+    ///
+    /// Bump when a change would make *this* build mangle a newer document —
+    /// a fourth region, renamed markers, a frontmatter key whose meaning moved.
+    /// Adding a key or a region an older build ignores does not need a bump.
+    static let formatVersion = 1
+
+    /// Frontmatter key carrying `formatVersion`. Named `plume` since the first
+    /// document written, which is why the key is not `format` or `version`.
+    static let versionKey = "plume"
+
     enum Region: String, CaseIterable {
         case notes, summary, transcript
 
@@ -30,6 +42,7 @@ enum MeetingDocument {
     enum DocumentError: Error, CustomStringConvertible, Equatable {
         case missingMarker(region: String, marker: String, path: String)
         case markersOutOfOrder(region: String, path: String)
+        case futureFormat(found: Int, supported: Int, path: String)
 
         var description: String {
             switch self {
@@ -40,6 +53,13 @@ enum MeetingDocument {
                     """
             case .markersOutOfOrder(let region, let path):
                 return "\(path): \(region) end marker precedes its start marker"
+            case .futureFormat(let found, let supported, let path):
+                return """
+                    \(path): written by a newer Plume (format \(found); this build \
+                    understands \(supported)). Refusing to write — the audio this \
+                    document came from no longer exists, so a bad rewrite is \
+                    unrecoverable. Update Plume, or edit the file by hand.
+                    """
             }
         }
     }
@@ -117,6 +137,31 @@ enum MeetingDocument {
             pairs.append((key, value))
         }
         return pairs
+    }
+
+    /// Format the document declares, or nil when it carries no `plume:` key.
+    ///
+    /// Nil is tolerated as "current", matching `SessionState.version`: a
+    /// hand-edited file that lost its frontmatter must stay editable, and every
+    /// document Plume has ever written carries the key.
+    static func declaredFormat(in document: String) -> Int? {
+        frontmatter(in: document)
+            .first { $0.0 == versionKey }
+            .flatMap { Int($0.1.trimmingCharacters(in: .whitespaces)) }
+    }
+
+    /// Refuse to rewrite a document from a newer Plume.
+    ///
+    /// Invariant 1 says never silently rewrite a marked region; this is the
+    /// version-skew case of the same rule. A newer build may have added a region
+    /// or moved a key's meaning, and our write would drop or corrupt it — with
+    /// the audio already deleted (invariant 6), there is nothing to regenerate
+    /// from. Read paths deliberately do **not** call this: showing a meeting we
+    /// only partly understand is harmless, changing it is not.
+    static func checkWritable(_ document: String, path: String = "meeting.md") throws {
+        guard let found = declaredFormat(in: document), found > formatVersion else { return }
+        throw DocumentError.futureFormat(
+            found: found, supported: formatVersion, path: path)
     }
 
     /// Contents of a region, excluding its markers and heading.
@@ -222,6 +267,7 @@ enum MeetingDocument {
     /// looked, and their edits outside this region must survive.
     static func updateRegion(_ region: Region, at url: URL, to body: String) throws {
         let existing = try String(contentsOf: url, encoding: .utf8)
+        try checkWritable(existing, path: url.lastPathComponent)
         let updated = try replacing(
             region, with: body, in: existing, path: url.lastPathComponent)
         try write(updated, to: url)
@@ -237,6 +283,7 @@ enum MeetingDocument {
         at url: URL, _ mutate: (inout [(String, String)]) -> Void
     ) throws {
         let document = try String(contentsOf: url, encoding: .utf8)
+        try checkWritable(document, path: url.lastPathComponent)
         var pairs = frontmatter(in: document)
         mutate(&pairs)
         try write(

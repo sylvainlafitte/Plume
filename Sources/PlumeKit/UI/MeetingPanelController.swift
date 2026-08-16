@@ -152,6 +152,27 @@ final class MeetingPanelController: MeetingDetailModel {
         scheduleSave()
     }
 
+    /// Put the recording disclosure on the clipboard, for pasting into the
+    /// meeting chat (PLAN R4).
+    ///
+    /// Copy rather than post: Plume is not a participant in the call and has no
+    /// chat to write to. It also keeps the human in the loop for the judgement
+    /// the app cannot make — whether notice is enough where you are, and whether
+    /// this is the moment to give it.
+    func copyDisclosure() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Config.disclosureText(), forType: .string)
+        disclosureCopied = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            self?.disclosureCopied = false
+        }
+    }
+
+    /// Drives the button's brief "Copied" confirmation — a clipboard write is
+    /// otherwise completely invisible.
+    var disclosureCopied = false
+
     func scheduleSave() { autosave.schedule() }
 
     /// Runs before `session` is reassigned in `startedRecording` — a second

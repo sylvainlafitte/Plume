@@ -133,3 +133,59 @@ struct SessionStateTests {
         #expect(visible.isEmpty)
     }
 }
+
+@Suite("Session state format versioning")
+struct SessionStateFormatTests {
+
+    private func tempSession() -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @Test("a new state carries the current format version")
+    func stampsCurrentVersion() {
+        #expect(SessionState().version == SessionState.formatVersion)
+    }
+
+    @Test("state written before versioning existed is still acted on")
+    func missingVersionIsTolerated() {
+        // Same tolerance as `machine`: files that predate the field must not
+        // become stranded, and every one of them is version 1 by definition.
+        #expect(SessionState(version: nil).isReadableByThisVersion)
+        #expect(SessionState(version: nil).isReadyForWork)
+    }
+
+    @Test("a session from a newer Plume is left alone, never worked on")
+    func futureVersionIsNotAdopted() {
+        // The first thing this pipeline does to a `recorded` session is
+        // transcribe it and delete the audio (invariant 6). Guessing at an
+        // unknown stage machine risks that; doing nothing risks nothing.
+        let future = SessionState(
+            stage: .recorded, version: SessionState.formatVersion + 1)
+        #expect(!future.isReadableByThisVersion)
+        #expect(!future.isReadyForWork)
+    }
+
+    @Test("advancing a session preserves a version this build didn't write")
+    func advancePreservesVersion() throws {
+        let session = tempSession()
+        defer { try? FileManager.default.removeItem(at: session) }
+
+        try SessionState(version: 99).save(to: session)
+        try SessionState.advance(session, to: .transcribed)
+        // Stamping our own version down over a newer one would silently make a
+        // foreign file look like ours.
+        #expect(SessionState.load(from: session)?.version == 99)
+    }
+
+    @Test("version survives a round trip through disk")
+    func roundTripsVersion() throws {
+        let session = tempSession()
+        defer { try? FileManager.default.removeItem(at: session) }
+
+        try SessionState(stage: .transcribed).save(to: session)
+        #expect(SessionState.load(from: session)?.version == SessionState.formatVersion)
+    }
+}
