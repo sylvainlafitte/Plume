@@ -39,10 +39,6 @@ stays on the machine.
 - **Setup & Checks window** that downloads the speech models with progress, and grants *and
   verifies* both audio permissions by capturing a tone. An unauthorized system-audio tap reports
   success and records silence, so capturing is the only check that tells the truth.
-- **A recording disclosure.** The recording panel's **Disclosure** button copies a one-line
-  "I'm recording this" notice to paste into the meeting chat, overridable with `disclosure_text` —
-  the sufficient wording is jurisdictional, and notice alone is not consent everywhere. Plume never
-  posts it for you; it is not a participant in the call.
 - **Optional extras**: launch at login, and camera-triggered "you aren't recording" notifications
   whose button starts a recording. Both off unless you turn them on; detection never starts a
   recording by itself.

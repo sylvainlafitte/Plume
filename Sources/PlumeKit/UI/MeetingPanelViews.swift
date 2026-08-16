@@ -114,23 +114,6 @@ struct RecordingStripView: View {
                 .buttonStyle(.borderless)
                 .keyboardShortcut("t", modifiers: .command)
                 .help("Insert the current time (⌘T) — for notes tied to a moment")
-
-                // R4: the recording indicator tells *you*; this is what tells
-                // the other people in the call. Copies rather than posts —
-                // Plume isn't in the meeting and can't see its chat.
-                Button {
-                    controller.copyDisclosure()
-                } label: {
-                    Label(
-                        controller.disclosureCopied ? "Copied" : "Disclosure",
-                        systemImage: controller.disclosureCopied
-                            ? "checkmark" : "person.2.wave.2"
-                    )
-                    .labelStyle(.titleAndIcon).font(.caption)
-                }
-                .buttonStyle(.borderless)
-                .help("Copy a one-line 'I'm recording this' notice to paste into the chat")
-
                 Spacer()
                 Text("Saved as you type").font(.caption2).foregroundStyle(.secondary)
             }

@@ -26,7 +26,7 @@ release is real and reachable by nobody. **Next action: finish the app icon, re-
 make the repo public.** That order matters and the window is closing: downloads are 0 and the repo
 is private, so replacing the tag today costs nothing, and stops being free the moment a stranger
 can fetch it. Four of the five things that wanted deciding before the tag are now done —
-`CFBundleVersion` stamping, the CHANGELOG, on-disk format versioning and R4's disclosure — leaving
+`CFBundleVersion` stamping, the CHANGELOG, on-disk format versioning and R4 — leaving
 the icon, which is in progress. The clean-Mac verification is still outstanding and is still the
 only way to test the three paths this machine structurally cannot — Gatekeeper on a *downloaded*
 bundle, the model download (warm cache here), and a genuine first-permission prompt.
@@ -99,8 +99,8 @@ Phases 1–6 are built. Per-phase detail moved to
       back full-length, not 1.7s. Only reachable with an actual call; guards against losing a
       whole meeting.
 
-R4's disclosure wording used to sit here too. It needs a decision, not other people, so it lives
-in "Before the repo goes public" — this section is only for what the calendar gates.
+R4 used to sit here too. It needed a decision, not other people, and that decision is now taken —
+see "Before the repo goes public". This section is only for what the calendar gates.
 
 ---
 
@@ -196,8 +196,8 @@ dependency:**
        note, with `LICENSE-quill` retained verbatim beside it. AGENTS.md now carries the rule
        that keeps the README true: it is updated in the same commit as any user-visible change,
        and three claims in it must never go stale (what leaves the machine, audio deletion,
-       anything listed as not-yet-built). **Open:** R4's disclosure wording, and the README's
-       two forward-looking links, which come true the moment the release exists.
+       anything listed as not-yet-built). **Open:** the README's two forward-looking links, which
+       come true the moment the repo is public.
 6. [~] **Phase 1–6 leftovers.** *Done 2026-08-16:* injectable `Config.path` /
        `TemplateStore.directory` (as **task-locals**, not locks — see the decision below) and
        the two regression tests they blocked; `LoginItem` (`SMAppService.mainApp`) and the
@@ -283,11 +283,11 @@ amendments and start being the next version.
       runs one way only** — older and missing are fine, newer is refused — because the failure
       is asymmetric: not acting is always recoverable, and the first thing done to a `recorded`
       session is transcribing it and deleting the audio (invariant 6). 9 new tests.
-- [x] **R4's recording-disclosure wording — settled 2026-08-16.** A **Disclosure** button in the
-      recording panel copies a one-liner for the meeting chat; `disclosure_text` overrides it.
-      PLAN R4 asked for exactly this pair — visible indicator (already shipped) plus a line to
-      paste. It **copies rather than posts**: Plume is not in the call and cannot see its chat,
-      and the judgement of whether notice suffices where you are is not one the app can make.
+- [x] **R4 — closed 2026-08-16, and closed *smaller* than PLAN asked.** The visible recording
+      indicator is the whole remedy. The paste-a-line half was built and removed the same day:
+      how to obtain consent is the user's problem, and a canned sentence is redundant to anyone
+      who knows their obligations and falsely reassuring to anyone who doesn't. See the decision
+      row below; **not** an open item.
 - [~] **Repo metadata** — description and 10 topics set 2026-08-16. The LICENSE fix is written
       but not yet detected: the fork note moved to a new `NOTICE` file so `LICENSE` is the MIT
       text and nothing else, which is what GitHub's whole-file matching needs. It will keep
@@ -333,10 +333,10 @@ rotates once at 1 MB, surfaced in Settings ▸ Troubleshooting); LICENSE; README
       naming the upstream repo; `LICENSE-quill` stays beside it, verbatim and untouched. Keeping
       the upstream notice is an obligation of the licence, not a courtesy — which is why the
       copyright line is in the main file rather than only in the retained one.
-- [x] **R4's recording-disclosure wording — settled 2026-08-16.** A Disclosure button in the
-      recording panel copies a one-line notice to paste into the chat; `disclosure_text`
-      overrides the default. See the release section above for why it copies rather than posts,
-      and AGENTS.md §2 for the standing version.
+- [x] **R4 — closed 2026-08-16 as the indicator alone.** No disclosure helper ships: the one
+      that was built got removed the same day, because consent is jurisdictional and situational
+      and an app-supplied sentence would reassure without helping. AGENTS.md §2 carries the
+      standing version.
 - [x] **README — written 2026-08-16.** States what it is, install (release zip and
       `build-app.sh`), the dependencies and their disk cost, what each permission is for and why
       the capture check exists, **what leaves the machine** (localhost Ollama, plus the one-time
@@ -400,7 +400,7 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | Date | Decision | Why |
 |---|---|---|
 | 2026-08-16 | **Format tolerance runs one way only: older and missing are read, newer is refused** | `meeting.md` had stamped `plume: 1` since the first document and nothing ever read it — a version field that is written but never checked is not versioning, it is decoration. Now `MeetingDocument.checkWritable` guards every write path and `SessionState.isReadableByThisVersion` gates `isReadyForWork`. The asymmetry is the whole design and it follows from invariant 6: refusing to act is always recoverable — the user updates Plume, or edits the file by hand — whereas acting on a format we are guessing at means rewriting a document whose audio is already deleted, or transcribing a session and deleting audio a newer build was still managing. Missing is tolerated as current for the same reason `machine` is `String?`: files that predate the field must not be stranded. Bump only when a change would make *this* build misread a newer file; a key older builds ignore is what optionals already handle. The subtle write path is `SpeakerEditing.apply`, which composes `replacing` + `write` itself and so needed its own check — a guard on `updateRegion` alone would have missed it |
-| 2026-08-16 | **The recording disclosure is copied, never posted (PLAN R4 settled)** | R4 asked for a visible indicator plus "a one-line disclosure to paste into chat"; the indicator shipped in Phase 1 and the line was still open at the first release. Plume cannot post it: it is not a participant in the call and cannot see its chat, so anything automatic would be a claim about a surface it has no access to. Leaving the paste to a human also leaves them the judgement the app genuinely cannot make — recording a private conversation without the participants' knowledge is a criminal offence in France (Code pénal art. 226-1) and in the US two-party-consent states, so whether *notice* is sufficient or *consent* is required depends on where everyone is sitting. Hence `disclosure_text` as a config key rather than a fixed string, and a default that ends with an out ("say the word if you'd rather I didn't") — notice alone is not consent, and the out is what makes it an offer |
+| 2026-08-16 | **R4 is answered by the recording indicator alone. The disclosure helper was built and removed the same day** | PLAN R4 asked for two things — a visible indicator, and "a one-line disclosure to paste into chat". The first shipped in Phase 1. The second was built (a Disclosure button copying a configurable `disclosure_text`) and then removed on the owner's call, which is the right one: **how to obtain consent is the user's problem, and a canned sentence cannot help with it.** Consent law is both jurisdictional and situational — recording a private conversation without the participants' knowledge is a criminal offence in France (Code pénal art. 226-1) and in the US two-party-consent states, and whether *notice* suffices or *consent* is required depends on where every participant is sitting, not where the app is. So the feature splits its audience badly: redundant for anyone who already knows their obligations, and *falsely reassuring* for anyone who doesn't — a button labelled "Disclosure" implies the app has handled something it hasn't. Falsely reassuring is the failure that matters, and it is not fixable by better default wording. What remains is the honest half: the indicator tells you that you are recording, the README says to follow the law where you are, and Plume claims nothing further. Don't re-add it — the config key, the button and its tests were all live and are gone deliberately |
 | 2026-08-16 | **`CFBundleVersion` is stamped from the commit count at build time** | It shipped as `1` in v0.1.0 and would have stayed `1` forever. Nothing in the release path objects: codesign, notarization, stapling and Gatekeeper are all indifferent to `CFBundleVersion`, so the only symptom arrives later and somewhere else — LaunchServices declining to treat a newer build as newer, and the planned update check having nothing to compare. `git rev-list --count HEAD` is monotonic by construction, needs no state file and no discipline at release time, and is applied by PlistBuddy to the *staged* plist so the repo's `Info.plist` keeps only the hand-set user-facing version. Skipped when git can't answer, so a source tarball still builds |
 | 2026-08-16 | **The fork note moved out of LICENSE into a new `NOTICE`** | GitHub reported the project as licensed "Other" rather than MIT. Its detection matches the *whole file*, and LICENSE carried a trailing paragraph about the Quill fork — deliberately placed there on 2026-08-16 so the attribution could not be missed. That reasoning is intact and the obligation is still met: both copyright lines stay in LICENSE, `LICENSE-quill` stays verbatim, and `NOTICE` carries the fork note with the README linking it. What changed is only that LICENSE is now the MIT text and nothing else, which is the one shape the detector accepts. Reverses the placement, not the principle |
 | 2026-08-16 | **v0.1.0 published, and a release is verified by downloading the asset back — never by trusting the local file** | Two failure modes this catches, one of which had already happened. First: the zip in `dist/` was four hours stale, missing `GlobalHotkey`, `LoginItem`, `SetupWindow`, `CameraWatch` and `ModelSetup` — 1,600 lines, most of the first-run experience — and it passed `spctl`, `stapler validate` and `codesign` perfectly, because **every Gatekeeper check passes on a stale build**. Nothing in the signing toolchain has an opinion about whether the binary is current; only a `strings`/hash check against the tagged commit does. Second: the upload itself is unverified until it round-trips — `gh release download` then sha256, `spctl`, `stapler`, and the entitlement. Both are cheap and neither is implied by a green notarization. Recorded because the next release will feel like it needs neither |
