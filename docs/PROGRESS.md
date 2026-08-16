@@ -21,17 +21,17 @@ one-line pointer here.
 **Phase:** 1–6 built; the work in flight is **distribution**, not a phase. 7 (Ask) is next and
 still optional, rescoped as a global surface. The architecture-review pass closed 2026-08-16 —
 see "The refactor pass" for what was done, what was declined, and the two gaps it left.
-**Next action:** **rebuild and re-notarize the artifact**, then the clean-Mac verification.
-`dist/Plume-0.1.0.zip` predates 1,600 lines of first-run work, so it is not the thing to ship;
-the clean Mac remains the only way to test the three paths this machine structurally cannot —
-Gatekeeper on a downloaded bundle, the model download (warm cache here), and a genuine
-first-permission prompt. The full ordered list is
-**[The 0.1.0 release](#the-010-release--what-is-actually-left)**, re-verified against this
-machine on 2026-08-16; it replaces the release items that were scattered across three sections
-and corrects two that were wrong. Signing and notarization are done and re-verified; README and
-LICENSE landed 2026-08-16; the PLAN.md content question is closed (illustrative, checked
-2026-08-16). The R3 corpus still runs in parallel and still gates Phase 2. Ask stays deliberately
-after distribution.
+**v0.1.0 is tagged, built and published** (2026-08-16) — and the repo is **still private**, so the
+release is real and reachable by nobody. **Next action: decide whether v0.1.0 is re-cut with an
+app icon, then make the repo public.** That order matters and the window is closing: downloads are
+0 and the repo is private, so replacing the tag today costs nothing, and stops being free the
+moment a stranger can fetch it. The clean-Mac verification is still outstanding and is still the
+only way to test the three paths this machine structurally cannot — Gatekeeper on a *downloaded*
+bundle, the model download (warm cache here), and a genuine first-permission prompt.
+Full state in **[The 0.1.0 release](#the-010-release--what-is-actually-left)**, which is the
+single place it lives. README and LICENSE landed 2026-08-16; the PLAN.md content question is
+closed (illustrative, checked 2026-08-16). The R3 corpus still runs in parallel and still gates
+Phase 2. Ask stays deliberately after distribution.
 
 *Docs were fully re-verified against the code on 2026-08-16 — AGENTS.md §0–§4 claim by claim.*
 
@@ -44,7 +44,8 @@ with rename, delete-to-Trash and the backend status beside Summarise.
 Around that: a **Setup & Checks** window that downloads the on-device models with progress and
 grants *and verifies* both audio permissions; ⌥⌘R and an optional login item; opt-in
 camera-triggered "you aren't recording" notifications whose button starts one; an app log at
-`~/Library/Logs/Plume/plume.log`; and a Developer ID-signed, notarized `dist/Plume-0.1.0.zip`.
+`~/Library/Logs/Plume/plume.log`; and a Developer ID-signed, notarized, **published**
+`Plume-0.1.0.zip` — on a repo that is still private.
 
 > ### ⚠️ Carried debt: Phase 2 is unverified on real multi-speaker audio
 > Every diarization and echo path is covered by synthetic unit tests only; the one real
@@ -208,70 +209,81 @@ dependency:**
 
 ### The 0.1.0 release — what is actually left
 
-*Checked against this machine and this repo on 2026-08-16 by running the commands, not by reading
-the list. It overturned two items that had been sitting open, both marked ✗.*
+*State as of 2026-08-16, each line established by running the command, not by reading the
+previous version of this list — which had two items open that were never true (both marked ✗).*
 
-**Re-verified as already working — do not spend time re-checking:**
+**Shipped and verified.** `v0.1.0` is tagged on `84766d8`, pushed, and published at
+[releases/tag/v0.1.0](https://github.com/sylvainlafitte/Plume/releases/tag/v0.1.0) with
+`Plume-0.1.0.zip` attached.
 
-- **Signing and notarization, end to end.** `Developer ID Application: SYLVAIN J R LAFITTE
-  (324ZRWQHHV)` is in the keychain and `xcrun notarytool history --keychain-profile plume-notary`
-  resolves (one Accepted submission). ✗ There is no credential setup left to do — the keychain
-  profile the script expects already exists.
-- **`dist/Plume-0.1.0.zip` is a shippable *shape*** — `spctl → accepted,
-  source=Notarized Developer ID`, `stapler validate` OK. Shape, not content: see blocker 1.
-- **165 tests pass on HEAD.**
-- ✗ **The repo is already clean to publish** — the spike-bundle item that used to head the
-  one-way-door list below was wrong. Closed there with the evidence.
+- [x] **The artifact was rebuilt first, and it is the right binary.** The previous zip was built
+      at 13:34, *before* `92ede9a` (14:44) added `GlobalHotkey`, `LoginItem`, `SetupWindow`,
+      `CameraWatch`, `Log` and `TempSweep` — 1,600 lines, most of the first-run experience the
+      README describes. It verified perfectly and was still the wrong binary, which is the whole
+      lesson: **every Gatekeeper check passes on a stale build.** Rebuilt 15:26 and confirmed by
+      `strings` on the shipped binary (`GlobalHotkey`, `LoginItem`, `SetupWindow`, `CameraWatch`,
+      `ModelSetup` all present).
+- [x] **Verified by downloading the published asset back**, not by trusting the local file.
+      sha256 `14409d9f…` matches `dist/` byte for byte; `spctl → accepted,
+      source=Notarized Developer ID`; `stapler validate` OK; `flags=0x10000(runtime)`; secure
+      timestamp 15:25:57; `com.apple.security.device.audio-input` present.
+- [x] **Nothing was fired at upstream** — `gh release list --repo digimata/quill` is empty. The
+      `--repo` flag did its job; see the trap below for why it is not optional.
+- [x] Signing and notarization work end to end; the `plume-notary` keychain profile already
+      existed. ✗ There was never any credential setup left to do.
+- [x] 165 tests pass on HEAD.
+- [x] ✗ The repo was already clean to publish — see the one-way-door list below.
 
-**Blocking, in order:**
+**Blocking, and the reason this is not done:**
 
-1. [ ] **Rebuild and re-notarize — the artifact is stale.** `dist/Plume-0.1.0.zip` was built at
-       13:34, *before* `92ede9a` (14:44) added `GlobalHotkey`, `LoginItem`, `SetupWindow`,
-       `CameraWatch`, `Log` and `TempSweep` — 1,600 lines, i.e. most of the first-run experience
-       the README describes. It verifies perfectly and is still the wrong binary, which is
-       exactly why this is first: every Gatekeeper check passes on a stale build.
-       `./build-app.sh release notarize`, from the tagged commit.
-2. [ ] **The clean-Mac verification.** Still the only way to test Gatekeeper on a *downloaded*
-       bundle, the model download (warm FluidAudio cache here since 2026-08-14) and a genuine
-       first-permission prompt. Run Settings ▸ Run Diagnostics there — the Hardened Runtime
-       denies the microphone silently if the entitlement is wrong (invariant 5).
-3. [ ] **Tag `v0.1.0`.** `git tag -l` is empty.
-4. [ ] **Make the repo public.** It is `PRIVATE` today, so release assets would be
-       undownloadable — and README.md already sends strangers to the Releases page.
-5. [ ] **Write release notes, then create the release.** There is no CHANGELOG and no notes file;
-       `gh release create --notes-file` fails on a path that doesn't exist, so the notes are a
-       deliverable, not a flag.
+1. [ ] **Make the repo public.** It is still `PRIVATE`, so the release returns 404 to everyone
+       but the owner — verified only because `gh` is authenticated as us. README.md already
+       sends strangers to that page. **This is the only thing between here and installable.**
+2. [ ] **The clean-Mac verification.** Still outstanding, and still the only way to test
+       Gatekeeper on a *downloaded* bundle with a quarantine flag, the model download (warm
+       FluidAudio cache here since 2026-08-14) and a genuine first-permission prompt. Run
+       Settings ▸ Run Diagnostics there — the Hardened Runtime denies the microphone silently if
+       the entitlement is wrong (invariant 5).
 
-**Two traps in that sequence**, both found by running the commands rather than reading them:
+**Two traps, both found by running the commands rather than reading them:**
 
 - **`gh` with no `--repo` resolves to `digimata/quill`.** `upstream` is a remote in this clone,
-  and `gh repo view` returned *quill's* description and visibility. Every release command needs
-  `--repo sylvainlafitte/Plume` spelled out, or the release is fired at upstream.
+  and `gh repo view` returned *quill's* description and visibility. Every `gh release`/`issue`/`pr`
+  needs `--repo sylvainlafitte/Plume` spelled out. Now also in AGENTS.md §5, since it recurs on
+  every release.
 - **The `/Applications` copy is never the release.** `notarize` stages in `/tmp` by design and
-  never installs, so `spctl` on the installed bundle proves nothing about the zip. Check the zip.
+  never installs, so `spctl` on the installed bundle proves nothing about the zip. Check the zip —
+  and preferably the zip *downloaded back from the release*, which is what actually ships.
 
-**Decide before the tag, not after** — each is cheap now and expensive once strangers have
-installs on disk:
+**The amendment window, and it is closing.** The tag exists, so the items below would ordinarily
+be 0.1.1 material. They are not yet: **downloads are 0 and the repo is private, so re-cutting
+v0.1.0 costs nothing today** and stops being free the moment a stranger can fetch it. Decide these
+before making the repo public, not after:
 
-- [ ] **App icon** — there isn't one. Generic binary icon in Finder, in the zip, in Notification
-      Center. The most visible gap on a first release, and the only item here that is real work.
-- [ ] **`CFBundleVersion` is `1` and never increments.** `CFBundleShortVersionString` is the
-      user-facing `0.1.0`; `CFBundleVersion` wants to be a monotonic build number the script
-      bumps. LaunchServices and the planned update check both key on it; **notarization does
-      not care, which is why this slips past unnoticed.**
+- [ ] **App icon — v0.1.0 shipped without one.** Generic binary icon in Finder, in the zip, in
+      Notification Center. The most visible gap on a first release, and the only item here that
+      is real work, which is exactly why it is the one worth spending the free re-cut on.
+- [ ] **`CFBundleVersion` is `1`** — confirmed in the *shipped* `Info.plist`, so it is now a
+      published fact rather than a local one. `CFBundleShortVersionString` is the user-facing
+      `0.1.0`; `CFBundleVersion` wants to be a monotonic build number the script bumps.
+      LaunchServices and the planned update check both key on it; **notarization does not care,
+      which is why this slipped past into a release.** A second release with the same
+      `CFBundleVersion` is the failure this causes.
+- [ ] **Release notes are a one-line body**, written inline at `gh release create`. Fine for
+      0.1.0, but there is still no CHANGELOG, so 0.1.1 has nothing to append to.
 - [ ] **Format versioning** for `meeting.md` and `state.json`. Once other people have data on
       disk, a format change needs a migration or a documented tolerance.
 - [ ] **R4's recording-disclosure wording** — see the one-way-door list below.
 - [ ] **Repo metadata**: description and topics are empty, and GitHub reads the LICENSE as
       "Other" because the fork note precedes the MIT text. Cosmetic, but it is the first thing
-      a visitor sees.
+      a visitor sees — and it is visible from the second the repo goes public.
 
-**After the release, because each one needs it to exist first:**
+**Unblocked by going public, not by the tag:**
 
 - [ ] **CI** — a GitHub Action running `swift test` on a macOS runner. 165 tests only stay honest
-      if a contributor's PR runs them, and there are no contributors before the repo is public.
+      if a contributor's PR runs them, and there are no contributors while the repo is private.
 - [ ] **Homebrew cask** in our own tap. `brew install --cask <tap>/plume` is the "one terminal
-      command", and a cask needs a published release to point at.
+      command", and a cask needs a release a stranger can actually download.
 - [ ] **An update check, not Sparkle.** Start with a version check against the GitHub releases
       API that opens the release page. An appcast, an EdDSA key and a self-updating signed app
       are real machinery for a project whose users can re-run brew.
@@ -370,6 +382,7 @@ from PLAN.md, in which case update PLAN.md too and say so.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-08-16 | **v0.1.0 published, and a release is verified by downloading the asset back — never by trusting the local file** | Two failure modes this catches, one of which had already happened. First: the zip in `dist/` was four hours stale, missing `GlobalHotkey`, `LoginItem`, `SetupWindow`, `CameraWatch` and `ModelSetup` — 1,600 lines, most of the first-run experience — and it passed `spctl`, `stapler validate` and `codesign` perfectly, because **every Gatekeeper check passes on a stale build**. Nothing in the signing toolchain has an opinion about whether the binary is current; only a `strings`/hash check against the tagged commit does. Second: the upload itself is unverified until it round-trips — `gh release download` then sha256, `spctl`, `stapler`, and the entitlement. Both are cheap and neither is implied by a green notarization. Recorded because the next release will feel like it needs neither |
 | 2026-08-16 | **Release state consolidated into one section, after two open checklist items turned out to be false** | "Remove the committed spike `.app` bundles" and an implied notarization-credential setup had both been sitting open; running the commands showed the bundles were never committed (`*.app/` gitignored from the first commit) and the `plume-notary` keychain profile already resolves. Neither was ever true — they were written from what the repo *probably* looked like. Both are now recorded as withdrawn **with the command that settles them**, rather than deleted, since a stale open item is re-derived the moment someone reads the old note again. The structural cause was duplication: release state lived in three sections ("Packaging and distribution", "Before the repo goes public", "Also missing"), so no single one was ever fully true. One section now owns it and the others point at it |
 | 2026-08-14 | Scaffolding: git + upstream remote, AGENTS.md, this file, `spikes/`, `.gitignore` | Multi-agent work across sessions needs revert-ability and a durable memory outside any one session |
 | 2026-08-14 | **`.app` bundle confirmed as the packaging approach** (PLAN.md Phase 1 stands) | Spike A measured it rather than assuming: LaunchServices makes the app its own TCC responsible process. quill#54 still reproduces exactly on macOS 26.5.1 |
