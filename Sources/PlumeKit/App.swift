@@ -160,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let root = Config.resolveRoot(cliOverride: nil)
 
-        let controller = AppController(root: root)
+        let controller = AppController()
         self.controller = controller
 
         let checks = DoctorReport.run(recordingsRoot: root)
@@ -205,7 +205,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class AppController {
     let state = AppState()
 
-    private let root: URL
+    /// Re-read on every use, never captured at launch: the meetings folder is
+    /// a setting, and a stored copy meant new recordings kept landing in the
+    /// folder that was configured when the app started. `Config` is
+    /// mtime-cached, so this is cheap.
+    private var root: URL { Config.resolveRoot(cliOverride: nil) }
     private let menuBar = MenuBarController()
     private let transcription = TranscriptionCoordinator()
     private let settingsWindow = SettingsWindowController()
@@ -218,9 +222,8 @@ final class AppController {
     private var session: RecordingSession?
     private var ticker: Timer?
 
-    init(root: URL) {
-        self.root = root
-        historyWindow = HistoryWindowController(root: root)
+    init() {
+        historyWindow = HistoryWindowController()
         menuBar.onToggle = { [weak self] in self?.toggle() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.onDismissFailure = { [weak self] in self?.state.clearFailure() }

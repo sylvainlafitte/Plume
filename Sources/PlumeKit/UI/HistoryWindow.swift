@@ -16,8 +16,8 @@ final class HistoryWindowController {
     private var window: NSWindow?
     private let model: HistoryModel
 
-    init(root: URL) {
-        model = HistoryModel(root: root)
+    init() {
+        model = HistoryModel()
     }
 
     func show() {
@@ -40,7 +40,9 @@ final class HistoryWindowController {
 @MainActor
 @Observable
 final class HistoryModel: MeetingDetailModel {
-    let root: URL
+    /// Read fresh, not stored: the folder can change in Settings while the app
+    /// runs, and `show()` reloads, so the list follows it.
+    var root: URL { Config.resolveRoot(cliOverride: nil) }
     private let engine = SummaryEngine()
 
     var entries: [MeetingEntry] = []
@@ -67,10 +69,6 @@ final class HistoryModel: MeetingDetailModel {
     var selected: MeetingEntry? { entries.first { $0.url == selection } }
     /// MeetingDetailModel's view of "the meeting on screen" is the selection.
     var session: URL? { selection }
-
-    init(root: URL) {
-        self.root = root
-    }
 
     func reload() {
         entries = MeetingLibrary.entries(in: root)

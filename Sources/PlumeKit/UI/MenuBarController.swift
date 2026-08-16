@@ -54,19 +54,19 @@ final class MenuBarController {
         )
         menu.addItem(toggleItem)
 
-        let history = NSMenuItem(
-            title: "Meetings…",
-            action: #selector(openHistoryClicked),
-            keyEquivalent: "l"
-        )
-        menu.addItem(history)
-
         panelItem = NSMenuItem(
             title: "Show notes panel",
             action: #selector(togglePanelClicked),
             keyEquivalent: "n"
         )
         menu.addItem(panelItem)
+
+        let history = NSMenuItem(
+            title: "Meetings…",
+            action: #selector(openHistoryClicked),
+            keyEquivalent: "l"
+        )
+        menu.addItem(history)
 
         let settings = NSMenuItem(
             title: "Settings…",

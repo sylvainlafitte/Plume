@@ -83,7 +83,6 @@ struct RecordingStripView: View {
                 Circle().fill(.red).frame(width: 8, height: 8)
                 Text(controller.elapsed)
                     .font(.system(.body, design: .monospaced)).monospacedDigit().bold()
-                Button("Stop") { controller.requestStop() }
             }
             // The header is the drag handle, since the window is no longer
             // movable by its background (that broke text selection).
@@ -104,18 +103,26 @@ struct RecordingStripView: View {
                 .background(.quaternary.opacity(0.4))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
+            Divider()
+            // Ending the meeting is this panel's one primary action, so it sits
+            // where the wrap-up panel's Summarise does — bottom right, prominent
+            // — rather than as a small control in the header beside the clock.
+            // Add timestamp shares the bar but stays bordered-grey: two prominent
+            // buttons would compete, and only one of them ends the recording.
             HStack {
                 Button {
                     controller.insertStamp()
                 } label: {
-                    Label("Timestamp", systemImage: "clock")
-                        .labelStyle(.titleAndIcon).font(.caption)
+                    Label("Add timestamp", systemImage: "clock")
+                        .labelStyle(.titleAndIcon)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.bordered)
                 .keyboardShortcut("t", modifiers: .command)
                 .help("Insert the current time (⌘T) — for notes tied to a moment")
+
                 Spacer()
-                Text("Saved as you type").font(.caption2).foregroundStyle(.secondary)
+                Button("Stop recording") { controller.requestStop() }
+                    .buttonStyle(.borderedProminent)
             }
         }
         .padding(12)

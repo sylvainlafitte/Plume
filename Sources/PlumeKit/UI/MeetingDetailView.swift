@@ -233,9 +233,6 @@ struct MeetingDetailView<Model: MeetingDetailModel>: View {
                 .background(.quaternary.opacity(0.4))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .onChange(of: model.notes) { _, _ in model.notesEdited() }
-
-            Text("These are yours — nothing rewrites them.")
-                .font(.caption2).foregroundStyle(.secondary)
         }
     }
 
