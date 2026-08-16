@@ -18,26 +18,30 @@ one-line pointer here.
 
 ## Current state
 
-**Phase:** 1–6 built; the work in flight is **distribution**, not a phase. 7 (Ask) is next and
-still optional, rescoped as a global surface. The architecture-review pass closed 2026-08-16 —
-see "The refactor pass" for what was done, what was declined, and the two gaps it left.
-**v0.1.0 is tagged, built and published** (2026-08-16) — and the repo is **still private**, so the
-release is real and reachable by nobody. **Next action: finish the app icon, re-cut v0.1.0, then
-make the repo public.** That order matters and the window is closing: downloads are 0 and the repo
-is private, so replacing the tag today costs nothing, and stops being free the moment a stranger
-can fetch it. Four of the five things that wanted deciding before the tag are now done —
-`CFBundleVersion` stamping, the CHANGELOG, on-disk format versioning and R4 — leaving
-the icon, which is in progress. The clean-Mac verification is still outstanding and is still the
-only way to test the three paths this machine structurally cannot — Gatekeeper on a *downloaded*
-bundle, the model download (warm cache here), and a genuine first-permission prompt.
-Full state in **[The 0.1.0 release](#the-010-release--what-is-actually-left)**, which is the
-single place it lives. README and LICENSE landed 2026-08-16; the PLAN.md content question is
+**Phase:** 1–6 built. **Distribution is done: the repo went public 2026-08-16 and v0.1.0 is
+installable by a stranger** — verified by an unauthenticated fetch of the release asset returning
+200, which is the only check that distinguishes "published" from "published to nobody". 7 (Ask)
+is next and still optional, rescoped as a global surface. The architecture-review pass closed
+2026-08-16 — see "The refactor pass" for what was done, what was declined, and the gap it left.
+
+**The amendment window is now shut.** v0.1.0 was re-cut three times on 2026-08-16 while the repo
+was private and downloads were 0, which made replacing the tag free; the last cut moved `v0.1.0`
+to `f3905d7` and clobbered the asset. From here a change is 0.1.1, not an amendment.
+
+**Next action: the clean-Mac verification.** It is the last thing that can still invalidate the
+release, and it is the only way to test the three paths this machine structurally cannot —
+Gatekeeper on a *downloaded* bundle with a quarantine flag, the model download (warm cache here),
+and a genuine first-permission prompt. After that, the three items going public unblocked: CI,
+a Homebrew cask, an update check.
+
+Full release state in **[The 0.1.0 release](#the-010-release--what-is-actually-left)**, which is
+the single place it lives. README and LICENSE landed 2026-08-16; the PLAN.md content question is
 closed (illustrative, checked 2026-08-16). The R3 corpus still runs in parallel and still gates
-Phase 2. Ask stays deliberately after distribution.
+Phase 2 — it is now the **only** carried debt of any size.
 
 *Docs were fully re-verified against the code on 2026-08-16 — AGENTS.md §0–§4 claim by claim.*
 
-**What works end to end today** (165 tests): menubar record → two-track capture → Parakeet transcription →
+**What works end to end today** (174 tests): menubar record → two-track capture → Parakeet transcription →
 offline diarization + echo filter → `meeting.md` with marked regions → audio deleted → floating
 panel for notes → templated summary via Ollama (glossary-aware, notes-weighted) → title derived
 and folder renamed → speaker rename/merge, plus a Meetings window for going back to any of it —
@@ -47,7 +51,8 @@ Around that: a **Setup & Checks** window that downloads the on-device models wit
 grants *and verifies* both audio permissions; ⌥⌘R and an optional login item; opt-in
 camera-triggered "you aren't recording" notifications whose button starts one; an app log at
 `~/Library/Logs/Plume/plume.log`; and a Developer ID-signed, notarized, **published**
-`Plume-0.1.0.zip` — on a repo that is still private.
+`Plume-0.1.0.zip` — on a repo that is now **public**, so the download link in the README works
+for someone who is not us.
 
 > ### ⚠️ Carried debt: Phase 2 is unverified on real multi-speaker audio
 > Every diarization and echo path is covered by synthetic unit tests only; the one real
@@ -116,6 +121,10 @@ model logic extracted (`MeetingContent`, `NotesAutosave`, `MeetingDetailModel`'s
 `TemplateStore` cached on file mtimes; one frontmatter splice; `summarize()` returns the renamed
 session; `Speaker.isRemoteLabel` and `Transcript.sorted` shared with their tests. The constraints
 each of these now carries are in AGENTS.md §4 — that is the durable record. 114 → 122 tests.
+*Extended 2026-08-16:* the mtime caching generalised — `Config`, `TemplateStore` and
+`VocabularyStore` had each grown their own cache struct and lock, and now share one
+`MTimeCache` (`de2a5f6`); see the decision row below for why it is keyed on the files' mtimes
+and not the directory's.
 
 **Declined, with reasons worth keeping:**
 
@@ -196,8 +205,9 @@ dependency:**
        note, with `LICENSE-quill` retained verbatim beside it. AGENTS.md now carries the rule
        that keeps the README true: it is updated in the same commit as any user-visible change,
        and three claims in it must never go stale (what leaves the machine, audio deletion,
-       anything listed as not-yet-built). **Open:** the README's two forward-looking links, which
-       come true the moment the repo is public.
+       anything listed as not-yet-built). *Closed 2026-08-16:* the two forward-looking links came
+       true when the repo went public — the Releases URL resolves and the install section's
+       notarized zip is attached to it, both confirmed by an unauthenticated fetch.
 6. [~] **Phase 1–6 leftovers.** *Done 2026-08-16:* injectable `Config.path` /
        `TemplateStore.directory` (as **task-locals**, not locks — see the decision below) and
        the two regression tests they blocked; `LoginItem` (`SMAppService.mainApp`) and the
@@ -214,9 +224,10 @@ dependency:**
 *State as of 2026-08-16, each line established by running the command, not by reading the
 previous version of this list — which had two items open that were never true (both marked ✗).*
 
-**Shipped and verified.** `v0.1.0` is tagged on `84766d8`, pushed, and published at
+**Shipped, public and verified.** `v0.1.0` is tagged on **`f3905d7`** (moved there by the final
+re-cut; it was `84766d8`, then `de2a5f6`), pushed, and published at
 [releases/tag/v0.1.0](https://github.com/sylvainlafitte/Plume/releases/tag/v0.1.0) with
-`Plume-0.1.0.zip` attached.
+`Plume-0.1.0.zip` attached — `sha256 cb7d24b4…`, `CFBundleVersion 42`.
 
 - [x] **The artifact was rebuilt first, and it is the right binary.** The previous zip was built
       at 13:34, *before* `92ede9a` (14:44) added `GlobalHotkey`, `LoginItem`, `SetupWindow`,
@@ -233,15 +244,16 @@ previous version of this list — which had two items open that were never true 
       `--repo` flag did its job; see the trap below for why it is not optional.
 - [x] Signing and notarization work end to end; the `plume-notary` keychain profile already
       existed. ✗ There was never any credential setup left to do.
-- [x] 165 tests pass on HEAD.
+- [x] 174 tests pass on HEAD.
 - [x] ✗ The repo was already clean to publish — see the one-way-door list below.
+- [x] **The repo is public — done 2026-08-16**, and checked the way that actually settles it: an
+      **unauthenticated** `curl` of the release asset returns 200, and so does the repo page.
+      `gh repo view` answering happily proves nothing here, because `gh` is authenticated as the
+      owner — which is exactly how "published to nobody" survived a whole day looking shipped.
 
-**Blocking, and the reason this is not done:**
+**Still open:**
 
-1. [ ] **Make the repo public.** It is still `PRIVATE`, so the release returns 404 to everyone
-       but the owner — verified only because `gh` is authenticated as us. README.md already
-       sends strangers to that page. **This is the only thing between here and installable.**
-2. [ ] **The clean-Mac verification.** Still outstanding, and still the only way to test
+1. [ ] **The clean-Mac verification.** Still outstanding, and still the only way to test
        Gatekeeper on a *downloaded* bundle with a quarantine flag, the model download (warm
        FluidAudio cache here since 2026-08-14) and a genuine first-permission prompt. Run
        Settings ▸ Run Diagnostics there — the Hardened Runtime denies the microphone silently if
@@ -257,11 +269,12 @@ previous version of this list — which had two items open that were never true 
   never installs, so `spctl` on the installed bundle proves nothing about the zip. Check the zip —
   and preferably the zip *downloaded back from the release*, which is what actually ships.
 
-**The amendment window — used, and now closed by choice.** The tag existed, so these would
+**The amendment window — used, and now closed for real.** The tag existed, so these would
 ordinarily have been 0.1.1 material. They were not, because downloads were 0 and the repo was
 private, which made replacing the tag free. **v0.1.0 was re-cut on 2026-08-16** with all of them
-in. The window shuts the moment a stranger can fetch the release; after that these stop being
-amendments and start being the next version.
+in — three times in the end, the last carrying the MTimeCache consolidation and a round of UI
+tweaks, each time moving the tag and clobbering the asset. **The window shut when the repo went
+public the same day.** Anything from here is 0.1.1.
 
 - [x] **App icon — done 2026-08-16.** `Resources/AppIcon.icns` plus `CFBundleIconFile`, staged by
       `build-app.sh`, generated by `Resources/icon/make-icon.swift` so it can be regenerated
@@ -273,7 +286,8 @@ amendments and start being the next version.
       it, because **codesign, notarization and Gatekeeper are all indifferent to it** — the
       failure would have surfaced much later as LaunchServices declining to see an update as
       newer. Monotonic by construction, no state file, no release-time discipline. First stamped
-      value: 36.
+      value: 36; v0.1.0 finally shipped at **42**. The gap is the point — three re-cuts moved it
+      without anyone maintaining a number.
 - [x] **CHANGELOG.md — written 2026-08-16.** Keep a Changelog / SemVer, with the 0.1.0 entry
       reconstructed and an Unreleased section. Notes it that `CFBundleVersion` is a build number
       and not a release number, since the two are now visibly different.
@@ -288,17 +302,21 @@ amendments and start being the next version.
       how to obtain consent is the user's problem, and a canned sentence is redundant to anyone
       who knows their obligations and falsely reassuring to anyone who doesn't. See the decision
       row below; **not** an open item.
-- [~] **Repo metadata** — description and 10 topics set 2026-08-16. The LICENSE fix is written
-      but not yet detected: the fork note moved to a new `NOTICE` file so `LICENSE` is the MIT
-      text and nothing else, which is what GitHub's whole-file matching needs. It will keep
-      reporting "Other" until that commit is pushed.
+- [~] **Repo metadata** — description and 10 topics set 2026-08-16; `NOTICE` written and pushed,
+      so `LICENSE` is now the MIT text plus the two copyright lines and nothing else. **Still not
+      detected as MIT** as of going public (`licenseInfo` is null). Detection may simply not have
+      re-run — re-check before doing anything about it. If it persists, the remaining suspect is
+      the *second* copyright line (Andrew Jones's), which whole-file matching may not normalise
+      away; note that moving it out of LICENSE would weaken the attribution it was deliberately
+      put there for, so that is a trade to take consciously rather than a fix to apply.
 
-**Unblocked by going public, not by the tag:**
+**Unblocked by going public, not by the tag — and as of 2026-08-16 they are actually unblocked,
+so this is the live worklist once the clean-Mac run is done:**
 
-- [ ] **CI** — a GitHub Action running `swift test` on a macOS runner. 165 tests only stay honest
-      if a contributor's PR runs them, and there are no contributors while the repo is private.
+- [ ] **CI** — a GitHub Action running `swift test` on a macOS runner. 174 tests only stay honest
+      if a contributor's PR runs them, and contributors are now possible.
 - [ ] **Homebrew cask** in our own tap. `brew install --cask <tap>/plume` is the "one terminal
-      command", and a cask needs a release a stranger can actually download.
+      command", and a cask needs a release a stranger can actually download — which now exists.
 - [ ] **An update check, not Sparkle.** Start with a version check against the GitHub releases
       API that opens the release page. An appcast, an EdDSA key and a self-updating signed app
       are real machinery for a project whose users can re-run brew.
@@ -399,6 +417,8 @@ from PLAN.md, in which case update PLAN.md too and say so.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-08-16 | **The repo is public, and "published" is only proven by an *unauthenticated* fetch** | The release had looked shipped for a day — tagged, notarized, asset attached, every command returning success — while returning 404 to everyone on earth except the owner. Nothing in the release path notices, for the same structural reason the stale-binary trap exists: `gh` is authenticated as us, so `gh release view` and `gh repo view` answer happily from inside the only account that can see it. The check that settles it is `curl` with no credentials against both the repo page and the asset URL — 200 and 200. Recorded because the next release will feel like the tag and the green notarization are the finish line, and they are not: **the finish line is a stranger's `curl`.** Note this is a one-way door, taken deliberately after the "Before the repo goes public" list was fully closed |
+| 2026-08-16 | **The three hand-edited stores share one `MTimeCache`, keyed on the files' mtimes and never the directory's** | `Config`, `TemplateStore` and `VocabularyStore` had each grown a private cache struct, its own lock and the same check-compute-store dance. They cache for one shared reason — these files exist to be **hand-edited**, so a stale read is indistinguishable from the feature being broken, while an uncached read is a stat plus a parse on a path hot enough to matter (`TemplateStore.all()` runs inside `MeetingDetailView.body`, i.e. once per keystroke). One mechanism, one place to get the subtle part right: the fingerprint is the *files'* modification dates, because a **directory's** mtime moves only when an entry is added or removed — a directory-keyed cache would ignore the in-place edit that is the entire premise of the templates folder. Two details that are easy to lose: `compute()` runs outside the lock and the fingerprint is re-read *after* it, since computing can create the very files being fingerprinted (`TemplateStore` seeds on first read, and storing the pre-seed fingerprint would miss on every later call); and a nil fingerprint means "unreadable — compute but don't cache", not "empty" |
 | 2026-08-16 | **Format tolerance runs one way only: older and missing are read, newer is refused** | `meeting.md` had stamped `plume: 1` since the first document and nothing ever read it — a version field that is written but never checked is not versioning, it is decoration. Now `MeetingDocument.checkWritable` guards every write path and `SessionState.isReadableByThisVersion` gates `isReadyForWork`. The asymmetry is the whole design and it follows from invariant 6: refusing to act is always recoverable — the user updates Plume, or edits the file by hand — whereas acting on a format we are guessing at means rewriting a document whose audio is already deleted, or transcribing a session and deleting audio a newer build was still managing. Missing is tolerated as current for the same reason `machine` is `String?`: files that predate the field must not be stranded. Bump only when a change would make *this* build misread a newer file; a key older builds ignore is what optionals already handle. The subtle write path is `SpeakerEditing.apply`, which composes `replacing` + `write` itself and so needed its own check — a guard on `updateRegion` alone would have missed it |
 | 2026-08-16 | **R4 is answered by the recording indicator alone. The disclosure helper was built and removed the same day** | PLAN R4 asked for two things — a visible indicator, and "a one-line disclosure to paste into chat". The first shipped in Phase 1. The second was built (a Disclosure button copying a configurable `disclosure_text`) and then removed on the owner's call, which is the right one: **how to obtain consent is the user's problem, and a canned sentence cannot help with it.** Consent law is both jurisdictional and situational — recording a private conversation without the participants' knowledge is a criminal offence in France (Code pénal art. 226-1) and in the US two-party-consent states, and whether *notice* suffices or *consent* is required depends on where every participant is sitting, not where the app is. So the feature splits its audience badly: redundant for anyone who already knows their obligations, and *falsely reassuring* for anyone who doesn't — a button labelled "Disclosure" implies the app has handled something it hasn't. Falsely reassuring is the failure that matters, and it is not fixable by better default wording. What remains is the honest half: the indicator tells you that you are recording, the README says to follow the law where you are, and Plume claims nothing further. Don't re-add it — the config key, the button and its tests were all live and are gone deliberately |
 | 2026-08-16 | **`CFBundleVersion` is stamped from the commit count at build time** | It shipped as `1` in v0.1.0 and would have stayed `1` forever. Nothing in the release path objects: codesign, notarization, stapling and Gatekeeper are all indifferent to `CFBundleVersion`, so the only symptom arrives later and somewhere else — LaunchServices declining to treat a newer build as newer, and the planned update check having nothing to compare. `git rev-list --count HEAD` is monotonic by construction, needs no state file and no discipline at release time, and is applied by PlistBuddy to the *staged* plist so the repo's `Info.plist` keeps only the hand-set user-facing version. Skipped when git can't answer, so a source tarball still builds |
