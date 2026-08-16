@@ -21,6 +21,16 @@ public enum PlumeApp {
         if args.contains("doctor") {
             runDoctorAndExit()
         }
+        // Dev tool: report the login-item state. Only meaningful when run as
+        // `/Applications/Plume.app/Contents/MacOS/plume loginitem` — SMAppService
+        // keys on the *calling* bundle, so a bare binary always says notFound.
+        if args.contains("loginitem") {
+            print("bundle: \(Bundle.main.bundleIdentifier ?? "none") @ \(Bundle.main.bundlePath)")
+            print("state:  \(LoginItem.state)")
+            if args.contains("register") { print("register → \(LoginItem.set(true))") }
+            if args.contains("unregister") { print("unregister → \(LoginItem.set(false))") }
+            exit(0)
+        }
         // Dev tool, not a product feature: diarize a file and print the turns.
         // This is the tuning loop for the held-aside test corpus (docs/PLAN.md
         // R3) — production audio is deleted, so config changes can only be
@@ -161,11 +171,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }.joined(separator: ", ")
             // Into AppState rather than only a notification: a banner is missed
             // if the user is away, and then nothing on screen says anything is wrong.
+            Log.write("startup checks failed · \(failed)")
             controller.state.report("startup checks failed · \(failed)")
             notifyUser(title: "Plume — startup checks failed", body: failed)
         }
 
-        FileHandle.standardError.write(Data("plume up · meetings → \(root.path)\n".utf8))
+        // R8: reclaim scratch files a crashed diarization left behind. Cheap,
+        // and nothing else ever notices them.
+        let swept = TempSweep.run()
+        if !swept.isEmpty {
+            Log.write("swept \(swept.count) abandoned temp file(s)")
+        }
+
+        // First run, or a cache someone cleared: show setup rather than letting
+        // the first meeting discover it. R7 — the download used to happen lazily
+        // inside the first transcription, i.e. after a real meeting, with no
+        // progress and no way to tell slow from broken.
+        if SetupWindowController.isNeeded {
+            controller.showSetup()
+        }
+
+        Log.write("plume up · meetings → \(root.path)")
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -183,6 +209,10 @@ final class AppController {
     private let menuBar = MenuBarController()
     private let transcription = TranscriptionCoordinator()
     private let settingsWindow = SettingsWindowController()
+    private let setupWindow = SetupWindowController()
+    private let hotkey = GlobalHotkey()
+    private var cameraWatch: CameraWatch?
+    private var notifications: NotificationRouter?
     private let meetingPanel = MeetingPanelController()
     private let historyWindow: HistoryWindowController
     private var session: RecordingSession?
@@ -195,16 +225,41 @@ final class AppController {
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.onDismissFailure = { [weak self] in self?.state.clearFailure() }
         menuBar.onOpenSettings = { [weak self] in
-            self?.settingsWindow.onRunDiagnostics = { [weak self] in self?.runDiagnostics() }
+            self?.settingsWindow.onCallDetectionChanged = { [weak self] in
+                self?.reloadCallDetection()
+            }
+            self?.settingsWindow.onOpenSetup = { [weak self] in self?.showSetup() }
             self?.settingsWindow.show()
         }
         menuBar.onOpenHistory = { [weak self] in self?.historyWindow.show() }
+        menuBar.onOpenSetup = { [weak self] in self?.showSetup() }
         menuBar.onTogglePanel = { [weak self] in self?.meetingPanel.focus() }
         meetingPanel.onStopRequested = { [weak self] in self?.stopSessionIfRecording() }
         meetingPanel.onSessionFinished = { [weak self] in
             guard let self else { return }
             self.state.hasPanelSession = self.meetingPanel.hasSession
         }
+
+        // ⌥⌘R from anywhere. Carbon, so it needs no Accessibility grant — see
+        // GlobalHotkey. A refusal means another app owns the combination; the
+        // menu bar item still works, so this is a note, not a failure.
+        if !hotkey.register(onFire: { [weak self] in self?.toggle() }) {
+            Log.write("⌥⌘R is taken by another app — hotkey disabled")
+        }
+
+        // Set before anything can be posted, or a click on the first
+        // notification has nowhere to go.
+        notifications = NotificationRouter(onStartRecording: { [weak self] in
+            guard let self, !state.recording.isRecording else { return }
+            startSession()
+        })
+
+        // Opt-in (`call_detection`), so this usually does nothing at all.
+        let watch = CameraWatch(
+            isRecording: { [weak self] in self?.state.recording.isRecording ?? false },
+            onDetected: { [weak self] in self?.cameraTurnedOn() })
+        watch.startIfEnabled()
+        cameraWatch = watch
 
         observeState()
 
@@ -242,6 +297,26 @@ final class AppController {
         NSApp.terminate(nil)
     }
 
+    /// The camera came on and we are not recording. Deliberately only a
+    /// *notification* plus a menu-bar line: starting a recording from a guess
+    /// about what the camera is doing would be the one unrecoverable mistake
+    /// this feature could make.
+    private func cameraTurnedOn() {
+        state.callHint = true
+        Log.write("camera turned on while idle — reminded the user")
+        Notify.post(
+            title: "Plume isn't recording",
+            body: "Your camera just turned on. Click to start recording, or press ⌥⌘R.",
+            category: .callDetected)
+    }
+
+    /// Settings changed while running — re-read rather than requiring a restart.
+    func reloadCallDetection() { cameraWatch?.startIfEnabled() }
+
+    /// Surfaced so `applicationDidFinishLaunching` can open setup without
+    /// reaching into the controller's windows.
+    func showSetup() { setupWindow.show(root: root) }
+
     func stopSessionIfRecording() {
         guard session != nil else { return }
         stopSession()
@@ -261,10 +336,12 @@ final class AppController {
             try newSession.start()
             session = newSession
             state.recording = .recording(since: newSession.startedAt)
+            // The reminder did its job (or was irrelevant): stop showing it.
+            state.callHint = false
             state.clearFailure()
             meetingPanel.startedRecording(session: newSession.dir, at: newSession.startedAt)
             state.hasPanelSession = true
-            FileHandle.standardError.write(Data("● recording → \(newSession.dir.path)\n".utf8))
+            Log.write("● recording → \(newSession.dir.path)")
         } catch {
             state.report("recording failed to start: \(error)")
             notifyUser(title: "Plume — recording failed", body: "\(error)")
@@ -286,9 +363,7 @@ final class AppController {
         guard let session else { return }
         session.stop()
         let elapsed = state.elapsedText ?? "0:00"
-        FileHandle.standardError.write(Data(
-            "○ stopped · \(elapsed) · \(session.dir.path)\n".utf8
-        ))
+        Log.write("○ stopped · \(elapsed) · \(session.dir.path)")
         self.session = nil
         ticker?.invalidate()
         ticker = nil
@@ -301,56 +376,7 @@ final class AppController {
         Task { [transcription] in await transcription.enqueue(dir) }
     }
 
-    /// Run the full checks including the ~2s empirical capture probes, then show
-    /// the result. Off the main actor because the probes sleep while capturing.
-    ///
-    /// Lives in Settings rather than the menu bar: it is troubleshooting, not a
-    /// thing you reach for during a meeting.
-    func runDiagnostics() {
-        let root = self.root
-        Task.detached(priority: .userInitiated) {
-            var checks = DoctorReport.run(recordingsRoot: root, probeAudio: true)
-            checks.append(await DoctorReport.checkSummarization())
-            await MainActor.run { [weak self] in
-                self?.presentDiagnostics(checks)
-            }
-        }
-    }
 
-    func presentDiagnostics(_ checks: [Check]) {
-        let failures = checks.filter { if case .fail = $0.status { return true } else { return false } }
-        let body = checks.map { check -> String in
-            let mark: String
-            switch check.status {
-            case .ok: mark = "✅"
-            case .warn: mark = "⚠️"
-            case .fail: mark = "❌"
-            }
-            var line = "\(mark)  \(check.name)"
-            switch check.status {
-            case .ok: break
-            case .warn(let detail), .fail(let detail): line += " — \(detail)"
-            }
-            if let remediation = check.remediation, !remediation.isEmpty,
-                !check.status.isOK
-            {
-                line += "\n      \(remediation)"
-            }
-            return line
-        }.joined(separator: "\n")
-
-        if let first = failures.first, case .fail(let detail) = first.status {
-            state.report("\(first.name): \(detail)")
-        }
-
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = failures.isEmpty ? "Plume diagnostics passed" : "Plume diagnostics found problems"
-        alert.informativeText = body
-        alert.alertStyle = failures.isEmpty ? .informational : .critical
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
 
 
 }

@@ -6,25 +6,29 @@ import SwiftUI
 /// here — a folder picker, a toggle whose consequence isn't obvious, a login
 /// item. Everything else stays hand-editable and undocumented in the UI.
 ///
-/// Panes accrete per phase (docs/PLAN.md F10): Phase 4 adds the Ollama model
-/// picker, Phase 5 the panel hotkey. Building the shell now avoids a late
-/// scramble to rediscover eleven scattered options.
+/// Panes accrete as features land (docs/PLAN.md F10). Today: meetings folder,
+/// meeting size, echo handling, starting a recording (camera reminder, login
+/// item, and the ⌥⌘R hotkey — stated, not editable), summaries, and
+/// troubleshooting. Readiness is deliberately *not* here: Setup & Checks owns
+/// every "is Plume ready" question, and this window links to it (AGENTS.md §2).
 @MainActor
 final class SettingsWindowController {
     private var window: NSWindow?
-    /// Set by AppController; the probes live there because they need the app's
-    /// own TCC identity.
-    var onRunDiagnostics: (() -> Void)?
+    var onCallDetectionChanged: (() -> Void)?
+    var onOpenSetup: (() -> Void)?
 
     func show() {
         if window == nil {
             let hosting = NSHostingController(
-                rootView: SettingsView(onRunDiagnostics: { [weak self] in
-                    self?.onRunDiagnostics?()
-                }))
+                rootView: SettingsView(
+                    onCallDetectionChanged: { [weak self] in self?.onCallDetectionChanged?() },
+                    onOpenSetup: { [weak self] in self?.onOpenSetup?() }))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Plume Settings"
-            window.styleMask = [.titled, .closable]
+            // Resizable, because the content is now taller than some screens
+            // and a settings window you cannot shrink is a settings window with
+            // buttons off the bottom edge.
+            window.styleMask = [.titled, .closable, .resizable]
             window.isReleasedWhenClosed = false
             window.center()
             self.window = window
@@ -37,12 +41,23 @@ final class SettingsWindowController {
 }
 
 struct SettingsView: View {
-    let onRunDiagnostics: () -> Void
+    /// So a toggle takes effect now rather than at the next launch.
+    var onCallDetectionChanged: () -> Void = {}
+    var onOpenSetup: () -> Void = {}
     @State private var settings = Config.current()
     @State private var saveError: String?
     @State private var installedModels: [String] = []
+    @State private var loginItem = LoginItem.state
+    /// Re-read when the window appears, so downloading models in the setup
+    /// window is reflected here without a relaunch.
+    @State private var modelsReady = ModelSetup.allReady
     @State private var modelsError: String?
     private var templates: [SummaryTemplate] { TemplateStore.all() }
+
+    /// `requiresApproval` means the user turned it off in System Settings.
+    /// Re-enabling from here would be overruling them, so the control is
+    /// disabled and says where the decision lives.
+    private var isLoginItemBlocked: Bool { loginItem == .blockedByUser }
 
     var body: some View {
         Form {
@@ -145,6 +160,50 @@ struct SettingsView: View {
             }
 
             Section {
+                Toggle(
+                    "Remind me when my camera turns on",
+                    isOn: Binding(
+                        get: { settings.callDetection ?? false },
+                        set: { newValue in
+                            settings.callDetection = newValue
+                            save { $0.callDetection = newValue }
+                            onCallDetectionChanged()
+                        }
+                    )
+                )
+                Toggle(
+                    "Open Plume at login",
+                    isOn: Binding(
+                        get: { loginItem == .enabled },
+                        set: { loginItem = LoginItem.set($0) }
+                    )
+                )
+                .disabled(isLoginItemBlocked)
+            } header: {
+                Text("Starting a recording")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    // The limits are stated because both are surprising: it
+                    // never records for you, and it cannot see audio-only calls.
+                    Text(
+                        "Plume can notice your camera switching on — usually the moment a "
+                        + "video call starts — and remind you it isn't recording. It never "
+                        + "starts a recording by itself, and it can't tell which app is using "
+                        + "the camera. Audio-only calls go unnoticed."
+                    )
+                    if case .unavailable(let why) = loginItem {
+                        Text("Login item unavailable: \(why)")
+                            .foregroundStyle(.orange)
+                    } else if isLoginItemBlocked {
+                        Text("Login item blocked in System Settings ▸ General ▸ Login Items.")
+                            .foregroundStyle(.orange)
+                    }
+                    Text("⌥⌘R starts and stops a recording from any app.")
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
                 Picker(
                     "Summary model",
                     selection: Binding(
@@ -217,24 +276,47 @@ struct SettingsView: View {
             }
 
             Section {
-                LabeledContent("Diagnostics") {
-                    Button("Run checks…", action: onRunDiagnostics)
+                // One row, because there is now one window behind it: setup and
+                // the checks were the same six questions asked twice.
+                LabeledContent("Setup & checks") {
+                    HStack(spacing: 8) {
+                        Text(modelsReady ? "Models installed" : "Models missing")
+                            .foregroundStyle(modelsReady ? Color.green : Color.orange)
+                        Button("Open…") { onOpenSetup() }
+                    }
+                }
+                LabeledContent("Log") {
+                    HStack(spacing: 8) {
+                        Button("Open", action: openLog)
+                        Button("Reveal in Finder", action: revealLog)
+                    }
                 }
                 LabeledContent("Config file") {
                     Button("Reveal in Finder", action: revealConfig)
                 }
+            } header: {
+                Text("Troubleshooting")
             } footer: {
                 Text(
-                    "Checks record and play a short tone to verify capture actually works — "
-                    + "every other signal looks healthy even when it doesn't.\n\n"
-                    + "Settings are stored in \(Config.path.path) and can be edited by hand."
+                    "Setup & checks reports everything Plume needs — permissions, on-device "
+                    + "models, Ollama, the meetings folder — and offers the fix beside "
+                    + "anything that isn't ready. Its capture checks play a short tone and "
+                    + "record, because every other signal looks healthy even when audio "
+                    + "isn't working.\n\n"
+                    + "The log is a plain text file at \(Log.file.path) — attach it to a bug "
+                    + "report. Settings live in \(Config.path.path) and can be edited by hand."
                 ).font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
+        // Width fixed, height flexible. `fixedSize(vertical:)` was here, which
+        // forces the window to the content's full natural height — fine when
+        // there were three sections, and taller than the screen once there were
+        // seven, with no scrollbar because nothing was ever clipped.
         .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(minHeight: 480, idealHeight: 900, maxHeight: .infinity)
         .task {
+            modelsReady = ModelSetup.allReady
             do {
                 installedModels = try await OllamaClient().tags()
                 modelsError = installedModels.isEmpty
@@ -265,6 +347,22 @@ struct SettingsView: View {
     /// `activateFileViewerSelecting` on a path that doesn't exist does nothing
     /// at all, with no error. Writing it first is harmless: every field is
     /// optional, so an untouched config encodes to `{}` and pins nothing.
+    private func openLog() {
+        // Create it if this is a quiet first run, so the button never appears
+        // to do nothing.
+        if !FileManager.default.fileExists(atPath: Log.file.path) {
+            Log.write("log opened from Settings")
+        }
+        NSWorkspace.shared.open(Log.file)
+    }
+
+    private func revealLog() {
+        if !FileManager.default.fileExists(atPath: Log.file.path) {
+            Log.write("log revealed from Settings")
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([Log.file])
+    }
+
     private func revealConfig() {
         if !FileManager.default.fileExists(atPath: Config.path.path) {
             save { _ in }

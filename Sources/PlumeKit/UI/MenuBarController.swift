@@ -11,6 +11,7 @@ final class MenuBarController {
     private let failureItem: NSMenuItem
     private let toggleItem: NSMenuItem
     private let panelItem: NSMenuItem
+    private let setupItem: NSMenuItem
     private var idleImage: NSImage?
     private var recordingImage: NSImage?
 
@@ -18,6 +19,7 @@ final class MenuBarController {
     var onQuit: (() -> Void)?
     var onDismissFailure: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onOpenSetup: (() -> Void)?
     var onTogglePanel: (() -> Void)?
     var onOpenHistory: (() -> Void)?
 
@@ -73,6 +75,16 @@ final class MenuBarController {
         )
         menu.addItem(settings)
 
+        // Setup is not a permanent fixture: it earns a menu slot only while
+        // something it can fix is missing. `render` re-evaluates it, so it
+        // disappears once the models land and comes back if they are deleted.
+        setupItem = NSMenuItem(
+            title: "Finish setup…",
+            action: #selector(openSetupClicked),
+            keyEquivalent: ""
+        )
+        menu.addItem(setupItem)
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
@@ -86,7 +98,7 @@ final class MenuBarController {
         // sidebar footer instead: it points at the folder *behind that list*,
         // and the menu bar is for actions you need without opening anything.
         for item in [
-            toggleItem, panelItem, history, settings, quit, failureItem,
+            toggleItem, panelItem, history, settings, setupItem, quit, failureItem,
         ] {
             item.target = self
         }
@@ -112,13 +124,14 @@ final class MenuBarController {
         let isRecording = state.recording.isRecording
         stateLabel.title = isRecording
             ? "● recording · \(state.elapsedText ?? "0:00")"
-            : "idle"
+            : (state.callHint ? "idle · camera is on" : "idle")
         toggleItem.title = isRecording ? "Stop recording" : "Start recording"
         // Only while a meeting is actually in flight. Once it is summarized it
         // is history, and the Meetings window opens on exactly that — a second
         // route to the same place is clutter.
         panelItem.isEnabled = state.hasPanelSession
         panelItem.title = "Show notes panel"
+        setupItem.isHidden = !SetupWindowController.isNeeded
         statusItem.button?.image = isRecording ? recordingImage : idleImage
 
         switch state.transcription {
@@ -188,6 +201,8 @@ final class MenuBarController {
     @objc private func quitClicked() { onQuit?() }
     @objc private func dismissFailureClicked() { onDismissFailure?() }
     @objc private func openSettingsClicked() { onOpenSettings?() }
+
+    @objc private func openSetupClicked() { onOpenSetup?() }
     @objc private func togglePanelClicked() { onTogglePanel?() }
     @objc private func openHistoryClicked() { onOpenHistory?() }
 }

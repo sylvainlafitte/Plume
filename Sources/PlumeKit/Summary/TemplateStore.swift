@@ -18,9 +18,25 @@ struct SummaryTemplate: Sendable, Equatable {
 /// since it just lists the directory.
 enum TemplateStore {
 
-    static var directory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Plume/Templates", isDirectory: true)
+    /// Overridable only so tests can seed and edit templates without writing
+    /// the developer's real ones — the reason "an in-place template edit is
+    /// picked up" had no regression test until now.
+    static var directory: URL { directoryOverride ?? defaultDirectory }
+
+    /// A task-local, for the reason spelled out on `Config.pathOverride`: a
+    /// process-wide override leaks between tests running in parallel.
+    @TaskLocal private static var directoryOverride: URL?
+
+    static let defaultDirectory = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Plume/Templates", isDirectory: true)
+
+    /// Run `body` against a different template folder, dropping the fingerprint
+    /// cache on the way in and out: it is keyed on file names, which two
+    /// directories share.
+    static func withDirectory<T>(_ url: URL, _ body: () throws -> T) rethrows -> T {
+        cache.withLock { $0 = Cache() }
+        defer { cache.withLock { $0 = Cache() } }
+        return try $directoryOverride.withValue(url) { try body() }
     }
 
     /// Shipped on first run and never overwritten afterwards, so edits survive

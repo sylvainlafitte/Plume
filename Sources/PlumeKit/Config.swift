@@ -17,6 +17,7 @@ struct Settings: Codable, Sendable, Equatable {
     var micVoiceProcessing: Bool?
     var transcriptEchoFilter: Bool?
     var expectedParticipants: Int?
+    var callDetection: Bool?
     var summaryModel: String?
     var summaryContextTokens: Int?
     var defaultTemplate: String?
@@ -28,6 +29,7 @@ struct Settings: Codable, Sendable, Equatable {
         case micVoiceProcessing = "mic_voice_processing"
         case transcriptEchoFilter = "transcript_echo_filter"
         case expectedParticipants = "expected_participants"
+        case callDetection = "call_detection"
         case summaryModel = "summary_model"
         case summaryContextTokens = "summary_context_tokens"
         case defaultTemplate = "default_template"
@@ -52,8 +54,40 @@ struct Settings: Codable, Sendable, Equatable {
 /// The file is the single source of truth: the settings window reads and writes
 /// it, so a hand-edit and a UI edit can never disagree.
 enum Config {
-    static let path = FileManager.default.homeDirectoryForCurrentUser
+    /// Overridable **only** so tests can point it somewhere disposable.
+    ///
+    /// It was a `let`, and that single fact is why the two most valuable
+    /// regression tests here did not exist: any test that exercised
+    /// `current()` / `save()` would read and rewrite the developer's real
+    /// config. `withPath` restores the previous value, so a test cannot leak
+    /// its temp path into the next one.
+    static var path: URL { pathOverride ?? defaultPath }
+
+    /// A **task-local**, not a lock and not a mutable global.
+    ///
+    /// Swift 6 rejects the mutable global, and AGENTS.md §4 rules out an
+    /// `@unchecked Sendable`. A lock compiles, but it is still process-wide —
+    /// and Swift Testing runs tests in parallel, so one test's temp path became
+    /// another suite's answer. Measured, not predicted: `ConfigTests` failed on
+    /// the first run with this override held by a concurrently-running test. A
+    /// task-local is scoped to the task tree that sets it, which is exactly the
+    /// scope a test needs.
+    @TaskLocal private static var pathOverride: URL?
+
+    static let defaultPath = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/plume/config.json")
+
+    /// Run `body` against a different config file. Test-only by intent; it also
+    /// drops the mtime cache on both sides, since two files' modification dates
+    /// are not comparable.
+    static func withPath<T>(_ url: URL, _ body: () throws -> T) rethrows -> T {
+        // The mtime cache is dropped on both edges: two files' modification
+        // dates are not comparable, so a cache entry from one path would be
+        // served for the other.
+        cache.withLock { $0 = Cache() }
+        defer { cache.withLock { $0 = Cache() } }
+        return try $pathOverride.withValue(url) { try body() }
+    }
 
     static let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Meetings", isDirectory: true)
@@ -81,6 +115,14 @@ enum Config {
     /// record-only mode; a hand-edit still honours it.
     static func transcriptionEnabled() -> Bool {
         current().transcription?.enabled ?? true
+    }
+
+    /// Notify when the camera turns on and Plume isn't recording. **Default
+    /// off**: it fires on any camera use, including the ones that are not
+    /// meetings, and a notification nobody asked for is worse than a missed
+    /// reminder. Opt in from Settings.
+    static func callDetectionEnabled() -> Bool {
+        current().callDetection ?? false
     }
 
     /// Configured engine name. Only "parakeet" ships today; the coordinator

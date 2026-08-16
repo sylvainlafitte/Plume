@@ -212,14 +212,16 @@ enum DoctorReport {
                 remediation: nil
             )
         }
-        let cache = AsrModels.defaultCacheDirectory(for: .v2)
-        if AsrModels.modelsExist(at: cache, version: .v2) {
+        guard !ModelSetup.transcriptionReady else {
             return Check(name: "transcription", status: .ok, remediation: nil)
         }
+        // Deliberately no longer says "downloads automatically on first
+        // transcription": it does, but that is the failure R7 exists to remove —
+        // a silent ~700 MB fetch after a real meeting, with nothing on screen.
         return Check(
             name: "transcription",
-            status: .warn("parakeet models not downloaded (~600 MB)"),
-            remediation: "downloads automatically on first transcription — record a short test session while online"
+            status: .warn("on-device models not downloaded (~\(ModelSetup.approximateDownloadMB) MB)"),
+            remediation: "Plume ▸ Finish setup… — downloads them with progress, before you need them"
         )
     }
 

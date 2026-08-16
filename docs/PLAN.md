@@ -10,7 +10,15 @@
 > findings carry a "revised/reversed in Phase N" note, and B2's `[verified]` tag turned out to be
 > a citation rather than a measurement. Treat an unannotated claim here as *what we believed
 > before building*, not as fact. Still live, and not yet delivered: R3 (the held-aside corpus),
-> R4 (recording disclosure), R7 (first-run model download), R8 (temp-dir sweep), Phase 7.
+> R4 (recording disclosure), Phase 7 — and Phase 7's shape has changed, see PROGRESS.md.
+> **Delivered since:** R7 (first-run model download, now the Setup & Checks window) and R8
+> (temp-dir sweep), both 2026-08-16.
+>
+> **Every example here is invented.** Names (Marie, Tom), titles, utterances and file bodies are
+> placeholders written to illustrate a format or a heuristic — no real meeting, transcript or
+> participant appears in this document, and none should ever be pasted in. Real recordings live
+> in the held-aside corpus, outside the repo, and their audio is deleted from `~/Meetings` by
+> design (invariant 6).
 
 ## Context
 
@@ -44,9 +52,9 @@ Rejected: forking OpenOats and deleting. Its unwanted features are not separable
 | Language | **English only** | Keep Parakeet v2; multilingual v3 is a one-line change (F2) |
 | Audio | **Deleted as soon as the transcript is written** | No re-runs, ever — see R3 |
 | Layout | **One `.md` per meeting** | Written when diarization completes, then edited by region (F7, F8) |
-| Ask | **One meeting at a time** | Reuses Phase 4's chunking; no embeddings, no cross-meeting index |
+| Ask | **One meeting at a time** | *Reversed 2026-08-16:* Ask is now a **global** surface with the single meeting as the N=1 case; retrieval decided in PROGRESS.md before any code |
 | Packaging | **`.app` bundle** | TCC grants bind to bundle identity; login item via `SMAppService` |
-| Call detection | **None; manual only** | Drops a ~150-line subsystem; camera trick recorded in F5 |
+| Call detection | **None; manual only** | *Reversed 2026-08-16:* built as `CameraWatch` on exactly the F5 mechanism — off by default, notifies only, never starts a recording |
 | Notes panel | **Pill / strip / wrap-up.** Free-text notes throughout | The primary surface for a fresh meeting — see F8 |
 | Transcript in the UI | **Never displayed** | No transcript view anywhere; it exists as summarizer input and as text in `meeting.md` |
 | Summarization trigger | **Explicit, after wrap-up notes** | Not automatic on stop — see F8 and R10 |
@@ -228,7 +236,7 @@ Three consequences worth stating plainly:
 
 **Speaker correction without a transcript view.** If the transcript is never shown, there's no way
 to learn that S1 is Marie. The Summary tab lists detected speakers with two or three representative
-utterances each ("S1 — *'so I think we should push the launch'*"), and supports **rename, merge,
+utterances each (`S1 — '<the opening words of a turn they took>'`), and supports **rename, merge,
 and drop-to-`them`**. Merge is not optional polish: diarization's characteristic failure is
 splitting one person across two labels, and rename alone cannot repair that. Merge rewrites both
 labels to one in the transcript region and collapses the frontmatter entries.
@@ -339,6 +347,11 @@ permanent name.
 CoreMediaIO video devices reports camera-on with **no TCC permission and no green dot** — a
 status read, not a capture. Deferred by decision; recorded so it isn't rediscovered.
 
+*Built 2026-08-16 as `CameraWatch`, on exactly this mechanism and confirmed exactly as described.
+Note the finding did its job only by accident: it was re-derived from scratch with a throwaway
+probe, because nothing outside this document pointed at it. If you are about to spike a macOS
+API, grep PLAN.md for it first.*
+
 **F6 — ASR↔diarization alignment is a data-model change, not a helper function.** FluidAudio
 deliberately doesn't compose the two. The work is larger than it looks: Quill's
 `TranscriptSegment` is `(start, end, text)`, and `ParakeetEngine.segments(from:)` groups up to
@@ -384,7 +397,7 @@ speaker_S2: Tom
 
 <!-- plume:transcript start -->
 ## Transcript
-**[00:12] Me:** ...
+**[00:12] me:** <one utterance per line, speaker label from diarization>
 <!-- plume:transcript end -->
 ```
 

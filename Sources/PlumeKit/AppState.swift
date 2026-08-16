@@ -48,6 +48,11 @@ public final class AppState {
     public var transcription: Transcription = .idle
     public private(set) var lastFailure: Failure?
 
+    /// The camera turned on recently and nothing is recording. Cleared when a
+    /// recording starts or the user dismisses it — a hint, never a state the
+    /// app acts on by itself.
+    public var callHint: Bool = false
+
     /// Whether the meeting panel has something to show. Drives the menubar
     /// item's enabled state — an action that does nothing is worse than none.
     public var hasPanelSession: Bool = false

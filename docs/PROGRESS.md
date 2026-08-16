@@ -21,18 +21,26 @@ one-line pointer here.
 **Phase:** 1–6 built; the work in flight is **distribution**, not a phase. 7 (Ask) is next and
 still optional, rescoped as a global surface. The architecture-review pass closed 2026-08-16 —
 see "The refactor pass" for what was done, what was declined, and the two gaps it left.
-**Next action:** signing and notarization are **done** (see "Road to public"): `Plume-0.1.0.zip`
-is notarized, stapled and Gatekeeper-accepted. What is left before a release is the clean-Mac
-verification, then README + LICENSE and the public-repo checklist — including the one item that
-must be settled before the repo is public, since git history is permanent: whether the
-transcript-shaped text in PLAN.md came from a real meeting. The R3 corpus still runs in
-parallel and still gates Phase 2. Ask stays deliberately after distribution.
+**Next action:** **the clean-Mac verification**, which is now the only thing standing between
+here and a release, and the only way to test the three paths this machine structurally cannot:
+Gatekeeper on a downloaded bundle, the model download (warm cache here), and a genuine
+first-permission prompt. Then README + LICENSE and the rest of the public-repo checklist.
+Signing and notarization are done; the PLAN.md content question is closed (illustrative, checked
+2026-08-16). The R3 corpus still runs in parallel and still gates Phase 2. Ask stays deliberately
+after distribution.
 
-**What works end to end today** (149 tests): menubar record → two-track capture → Parakeet transcription →
+*Docs were fully re-verified against the code on 2026-08-16 — AGENTS.md §0–§4 claim by claim.*
+
+**What works end to end today** (165 tests): menubar record → two-track capture → Parakeet transcription →
 offline diarization + echo filter → `meeting.md` with marked regions → audio deleted → floating
-panel for notes → templated summary via Ollama → title derived and folder renamed → speaker
-rename/merge, plus a Meetings window for going back to any of it — with rename, delete-to-Trash
-and the backend status beside Summarise.
+panel for notes → templated summary via Ollama (glossary-aware, notes-weighted) → title derived
+and folder renamed → speaker rename/merge, plus a Meetings window for going back to any of it —
+with rename, delete-to-Trash and the backend status beside Summarise.
+
+Around that: a **Setup & Checks** window that downloads the on-device models with progress and
+grants *and verifies* both audio permissions; ⌥⌘R and an optional login item; opt-in
+camera-triggered "you aren't recording" notifications whose button starts one; an app log at
+`~/Library/Logs/Plume/plume.log`; and a Developer ID-signed, notarized `dist/Plume-0.1.0.zip`.
 
 > ### ⚠️ Carried debt: Phase 2 is unverified on real multi-speaker audio
 > Every diarization and echo path is covered by synthetic unit tests only; the one real
@@ -52,11 +60,11 @@ Phases 1–6 are built. Per-phase detail moved to
 
 | Phase | Open |
 |---|---|
-| 1 — Fork and foundations | `SMAppService.mainApp` login item — now folded into packaging (see "Road to public"), because it is install UX |
+| 1 — Fork and foundations | — (`SMAppService` login item done 2026-08-16, in Settings) |
 | 2 — Diarization and echo | **Verify on the R3 corpus.** Every multi-speaker path is unit-tested only. *Done when:* a 3-person call yields distinct speakers **and a 1:1 yields exactly one remote speaker** — the second is the one expected to fail |
 | 3 — Markdown + stage machine | — |
 | 4 — Summaries | — |
-| 5 — The panel | Global hotkey (needs Carbon `RegisterEventHotKey`); the menubar item covers it today |
+| 5 — The panel | — (⌥⌘R global hotkey done 2026-08-16 via Carbon `RegisterEventHotKey`; see the decision below for why not `NSEvent`) |
 | 6 — History window | — |
 | 7 — Ask (optional, first to cut) | **Scope changed 2026-08-16: Ask is global, not per-meeting.** A tab is scoped to the selected meeting and global Ask has none, so it wants its own surface with the per-meeting tab as the N=1 case — retrieval, summaries-by-default and citation are decided in "Road to public, and to Ask" before any code |
 
@@ -118,16 +126,14 @@ each of these now carries are in AGENTS.md §4 — that is the durable record. 1
 1. **The refactor's UI paths have no automated coverage.** Summarize, the regenerate-failure
    reload and speaker rename in both surfaces are model code no test reaches. One manual pass
    through the `.app` is the cheapest close.
-2. **`Config.path` and `TemplateStore.directory` are fixed global paths**, so a test that
-   exercises them writes the developer's real config or templates. That is why the two most
-   valuable regression tests here — "a model changed in config is used by the next generation"
-   and "an in-place template edit is picked up" — were not written. A test-injectable path
-   unblocks both.
+2. ~~**`Config.path` and `TemplateStore.directory` are fixed global paths**~~ — **closed
+   2026-08-16.** Both are now overridable via `withPath` / `withDirectory`, implemented as
+   task-locals rather than locks (a lock is process-wide, and Swift Testing runs tests in
+   parallel — see the decision below). Both regression tests exist in `InjectablePathsTests`.
 
-Also surfaced and *not* part of the refactor: PLAN R7 (first-run model download still happens
-lazily in `ParakeetEngine.prepare()`, not from `doctor` with progress) and R8 (no launch-time
-sweep of FluidAudio's temp files — `grep temporaryDirectory Sources/` is empty). Both are
-pre-existing; they belong in the backlog.
+Also surfaced and *not* part of the refactor: PLAN R7 (lazy first-run model download) and R8 (no
+temp-file sweep). **Both closed 2026-08-16** — `ModelSetup` + the Setup & Checks window, and
+`TempSweep` at launch. See "Road to public" item 4.
 
 ---
 
@@ -170,35 +176,40 @@ dependency:**
        can re-run brew. Start with a version check against the GitHub releases API that opens
        the release page. Pull the deferred `SMAppService` login item into this item: it is
        install UX, not a Phase 1 leftover.
-4. [ ] **First-run experience (PLAN R7, R8).** What makes "installable on a new machine" true
+4. [x] **First-run experience (PLAN R7, R8) — done 2026-08-16.** What makes "installable on a new machine" true
        rather than nominal. Model download is still lazy inside `ParakeetEngine.prepare()`, so
-       a fresh Mac's first meeting stalls with no progress — and **this dev machine cannot
-       reproduce it** (warm FluidAudio cache, logged 2026-08-14). Move the pull into `doctor`
-       with progress; have `doctor` state the Ollama and model requirements plainly. R8's
-       temp-file sweep rides along. Shipping before this makes every new user's first
-       impression a hang.
+       `SetupWindow` opens at launch when models are missing, with real progress from
+       FluidAudio's own download handlers (`AsrModels.download`, `OfflineDiarizerModels.load`)
+       behind `ModelSetup`; `doctor` points at it instead of promising a silent lazy download;
+       a "Finish setup…" menu item appears only while something is missing. `TempSweep` covers
+       R8. **Still unverifiable here** (warm FluidAudio cache, logged 2026-08-14) — the
+       download path itself wants the clean-Mac run.
 5. [ ] **README, LICENSE, public prep.** After 3–4, so the README documents something that
        actually installs. See the checklist below.
-6. [ ] **Phase 1–6 leftovers**, unequal in value: test-injectable paths for `Config.path` /
-       `TemplateStore.directory` (cheap, and unblocks the two regression tests named in "The
-       refactor pass"); the manual `.app` pass over the refactored UI paths; the global hotkey
-       last — the menubar item covers it.
+6. [~] **Phase 1–6 leftovers.** *Done 2026-08-16:* injectable `Config.path` /
+       `TemplateStore.directory` (as **task-locals**, not locks — see the decision below) and
+       the two regression tests they blocked; `LoginItem` (`SMAppService.mainApp`) and the
+       ⌥⌘R global hotkey (`GlobalHotkey`, Carbon), both in Settings. **Open:** the manual
+       `.app` pass over the refactored UI paths — summarize, regenerate-failure reload and
+       speaker rename in both surfaces.
 7. [ ] **Ask** — design notes below.
-8. [ ] **Video-call detection, scoped down: suggest, never auto-record.** Detection is
-       heuristic (camera/mic use by a known bundle id) and a false positive that starts
-       recording is the one failure here that is unrecoverable socially rather than
-       technically. A notification offering to start, which does nothing if ignored, is the
-       version worth building. There is currently **no such code at all** — the only
-       call-adjacent line is a comment in `MicRecorder` about a call app reconfiguring the
-       input device.
+8. [x] **Call detection — done 2026-08-16, camera-triggered.** Detection is
+       `CameraWatch` polls `kCMIODevicePropertyDeviceIsRunningSomewhere`; off by default
+       (`call_detection`), notification plus a menu-bar line, never starts a recording.
 
 ### Before the repo goes public — one-way door
 
 - [ ] Remove the committed spike `.app` bundles (`spikes/panel/SpikeB.app`,
       `spikes/responsible-process/SpikeA.app`) — binaries carrying our signing identity.
-- [ ] Grep the history for real meeting content. `docs/PLAN.md` contains transcript-shaped
-      text; establish whether it is illustrative or from a real recording **before** it is
-      public, because git history is forever.
+- [x] **Checked 2026-08-16: `docs/PLAN.md` carries no real meeting content.** Every name, title
+      and utterance in it was invented as an illustration; the two transcript-shaped samples are
+      now angle-bracket placeholders, and the header states outright that all examples are
+      fiction. The one place real ASR output survives anywhere in the docs is the echo decision
+      row below — the fragments `"chatbot"/"chat bot"`, `"Kodi"/"Cody"`,
+      `"trading files"/"creating files"`, from a self-recorded test. Kept deliberately: they are
+      the evidence that string equality cannot work, they name no person and disclose nothing,
+      and paraphrasing them would destroy the point they prove. **Re-check this if any future
+      decision quotes a real meeting** — that is the line, not the fact of quoting ASR.
 - [ ] **LICENSE: MIT, retaining quill's copyright** (`LICENSE-quill` is already here). Keeping
       the upstream notice is an obligation of the licence, not a courtesy. Add our own line and
       a fork note.
@@ -218,11 +229,12 @@ dependency:**
       wants to be a monotonic build number the script bumps. LaunchServices and any update check
       key on it; notarization does not care, which is why this can slip past unnoticed.
 - [ ] **App icon** — there isn't one.
-- [ ] **A log story for other people.** Failures land in `.plume/transcribe.log` per session;
-      there is no app-level log to ask a bug reporter for.
+- [x] **A log story — done 2026-08-16.** `Log` writes `~/Library/Logs/Plume/plume.log`
+      (rotates once at 1 MB), surfaced in Settings ▸ Troubleshooting. Session-level
+      `.plume/transcribe.log` is unchanged.
 - [ ] **Format versioning** for `meeting.md` and `state.json`. Once other people have data on
       disk, a format change needs a migration or a documented tolerance. Cheap now.
-- [ ] **CI**: a GitHub Action running `swift test` on a macOS runner. 149 tests only stay
+- [ ] **CI**: a GitHub Action running `swift test` on a macOS runner. 165 tests only stay
       honest if a contributor's PR runs them.
 
 ### Ask — three decisions to take before writing code
@@ -287,6 +299,18 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | 2026-08-15 | **`contentTintColor` does not colour a status item's template image.** The recording icon is a pre-tinted, non-template copy instead | Reported as "it goes from white to black", not red. A template image's rendering treatment wins over the tint, so the icon dropped from the menu bar's own foreground colour to black — on a dark menu bar that reads as the icon vanishing, which is the opposite of a recording indicator (R4). Idle stays a template so it still follows light/dark; recording bakes the red in and turns the flag off |
 | 2026-08-15 | Panel windows are not movable by background; headers and the pill carry `WindowDragGesture()` | Movable-by-background makes every content drag move the window, silently breaking drag-to-select and turning a pill drag into a click. The pill also stopped being a `Button` for the same reason |
 | 2026-08-16 | **The panel's anchor corner is chosen per expand and stored, replacing the fixed top-right rule** | Top-right was never load-bearing — the invariant is only that collapse and expand pivot on the *same* corner, or a round-trip drifts the pill by the size difference. Fixed at top-right, a pill parked in a bottom or left corner expanded straight off the screen. `PanelAnchor` now flips an axis only when the preferred corner would overflow the screen the pill is on (flip-on-need, so behaviour with room is unchanged), clamps as a backstop for the cases where no corner fits, and the result is **stored until the next expand**. Re-deriving it at collapse was tried on paper and rejected: after a bottom flip the window sits high, the re-derived corner reads "top", and the pill returns hundreds of points from where it left — `PanelAnchorTests` pins both the round-trip and that failure |
+| 2026-08-16 | **Setup and "Run checks…" merged into one window; the diagnostics alert is gone** | They were two surfaces answering the same six checks — a window with buttons, and an `NSAlert` printing the same findings as emoji text — and the split had *already* produced two verdicts from one probe (`DoctorReport.checkMicLevel` vs the setup window's own reading of `AudioProbe.Level`). That is the drift AGENTS.md §4 records for the panel and the history window, caught a day in rather than a phase later. `DoctorReport` stays the single engine and `plume doctor` stays a second renderer of it; the window's contribution is **agency** — the fix sits beside the finding (Download, Grant/Verify, Reveal), which an alert can never offer. Two properties kept from the alert-era design: a passing check still shows its *measurement* rather than a bare "ok" (every other signal here can lie), and probes stay behind a button, since they cost ~2 s and play a tone. Auto-open stays narrow: models missing only, never a cold Ollama |
+| 2026-08-16 | **Setup grants *and verifies* both audio permissions, so the first meeting isn't where you meet them** | Previously the row was prose — "macOS asks the first time you record" — which is precisely the wrong moment: a permission sheet lands mid-recording, and a grant made *during* a capture arrives too late for that capture (logged 2026-08-14). Now a button requests the microphone and then runs the two real probes. The asymmetry is the interesting part and is why this cannot be a status read: the mic has a queryable TCC status, **system audio has none** — an unauthorised tap returns `noErr`, reports a correct format, fires its IOProc on schedule and delivers pure silence (invariant 5). So the green tick is earned by capturing, never by asking, and the button reads "Verify…" rather than "Grant…" once the mic is already granted, because at that point there is nothing left to ask for. Order matters: the mic request must return before the probes run, or the tone plays into a permission sheet. A refusal links to System Settings, since macOS prompts once ever |
+| 2026-08-16 | **A notification needs a delegate and a category, or a click just "activates the app"** | Switching to `UNUserNotificationCenter` fixed the attribution (it was opening Script Editor) but not the click: with no delegate macOS merely activates the app, and for an accessory app with no main window that meant bringing forward whatever window existed — so a "you aren't recording" reminder opened **Settings**. `NotificationRouter` now sets the delegate before anything can be posted and registers a `call-detected` category with a *Start recording* button; the body click and the button do the same thing, because there is exactly one useful response to that notification. This does not weaken "never auto-record" — the click *is* the consent. Note `completionHandler()` is called before the main-actor hop, not inside it: it is task-isolated, and capturing it in a `@MainActor` closure is a Swift 6 data race |
+| 2026-08-16 | **`fixedSize(vertical:)` truncated the setup window's text — the same modifier that had oversized Settings** | Two windows, opposite failures, one modifier. On the Settings *container* it forced the window to the content's full height, past the bottom of the screen. Absent from the setup window's wrapped `Text`s, SwiftUI was free to compress each to a single clipped line. The rule that resolves both: it belongs on **text that must wrap**, never on a container that must scroll |
+| 2026-08-16 | **Notifications go through `UNUserNotificationCenter`, not `osascript`** | Clicking a Plume notification opened **Script Editor**. Not a wiring bug: `osascript -e 'display notification'` posts the notification *as Script Editor*, so macOS attributes it there and the click activates that app. The workaround was correct when Plume was a bare binary with no bundle to authorize; the signed bundle removed the reason for it. The osascript path stays for the CLI (`plume doctor`, `plume summarize`), where there is still no bundle and a misattributed notification beats none. Authorization is requested lazily on the first notification, not at launch — a permission prompt before the user has done anything is how apps get dismissed — and a denial is silent, since every failure is also a sticky menu-bar line |
+| 2026-08-16 | **`SMAppService.mainApp.status == .notFound` means "never registered", not "no bundle"** | The login-item toggle shipped disabled, reporting "no app bundle", from a correctly bundled and signed app in `/Applications` — my mapping of `.notFound`, which the name and the docs both suggest. Measured instead: from inside the real bundle the status *is* `.notFound` before first use (`.notRegistered` is what the name implies but not what this OS returns), and `register()` from that state succeeds and goes straight to `.enabled`. Verified by registering and unregistering through a new `plume loginitem register\|unregister` dev command, leaving the machine as found. `.notFound` now maps to `disabled` — an offer — and only a *failing* `register()` reports unavailable |
+| 2026-08-16 | **An app-level log at `~/Library/Logs/Plume/plume.log`, and Settings gained a Troubleshooting section** | The only durable log was per-session `.plume/transcribe.log`, which covers a transcription that failed and nothing else — not "it never started", not the hotkey, not anything before a recording exists. The rest went to stderr, which for a LaunchServices-launched `.app` goes nowhere a user can reach. Plain text in `~/Library/Logs/`, where Console.app and every "send me the logs" instruction already look, rather than `os_log`, which a user cannot hand over without knowing `log show`. Rotates once at 1 MB. Settings' unlabelled diagnostics rows became a titled **Troubleshooting** section carrying model status (with a route back into the setup window, so models can be re-fetched if they are ever removed), the checks, the log, and the config file |
+| 2026-08-16 | **Settings overflowed the screen with no scrollbar** | `.fixedSize(horizontal: false, vertical: true)` forces the window to the content's full natural height, so nothing is ever clipped and no scrollbar appears — fine at three sections, taller than a laptop screen at seven. Replaced with a flexible height (`minHeight` 320, `idealHeight` 640) and a `.resizable` window |
+| 2026-08-16 | **PLAN.md F5 already held the camera-detection answer, and it was re-derived anyway** | F5 recorded `kCMIODevicePropertyDeviceIsRunningSomewhere`, "no TCC permission and no green dot", explicitly *"so it isn't rediscovered"* — and it was rediscovered, by writing a throwaway CoreMediaIO probe. No harm done (the probe confirmed F5 exactly, and measuring beat trusting), but the cost was real and the cause is structural: PLAN.md is "consulted, not read front to back", and nothing outside it pointed at F5. **Before spiking any macOS API, grep PLAN.md for it.** The F-numbers are an index only if someone searches it |
+| 2026-08-16 | **Call detection watches the *camera*, not the microphone** | The mic says someone is already talking; the camera turns on when you *join*, before anyone speaks — which is when a reminder is still useful rather than a reproach. It is also free in permissions: `kCMIODevicePropertyDeviceIsRunningSomewhere` reads without the camera TCC grant (measured with a throwaway binary before any of it was built — 1 device enumerated, `running=false`, no prompt, no camera indicator), and Plume never opens a stream. Accepted blind spot: **audio-only calls**, which have no camera to notice. That is the right failure direction — this feature must never be why a recording starts, only a reminder that one hasn't, so it posts a notification and a menu-bar line and stops there. Off by default: it fires on any camera use, and an unrequested notification is worse than a missed reminder. Polling (2 s) rather than a CMIO property listener: reads are trivial, the device list changes when anything is plugged in, and a 2 s delay on "your meeting is starting" is imperceptible |
+| 2026-08-16 | **Injectable paths are `@TaskLocal`, not a lock** | `Config.path` and `TemplateStore.directory` were `let`s pointing at the developer's real files, which is why the two most valuable regression tests could not be written. A lock compiles and is Swift 6-clean, but it is **process-wide**, and Swift Testing runs tests in parallel — the first run with a lock failed `ConfigTests` because another suite read the override a concurrent test was holding. A task-local is scoped to the task tree that sets it, which is exactly a test's scope. Both regression tests now exist: "a model changed in config is used by the next read" and "an **in-place** template edit is picked up" — the second is the one a directory-mtime cache would fail |
+| 2026-08-16 | **The global hotkey is Carbon `RegisterEventHotKey`, deliberately** | The modern-looking alternative, `NSEvent.addGlobalMonitorForEvents`, needs the **Accessibility** permission — which grants system-wide keystroke reading. Asking a privacy-first meeting recorder's users for that, to toggle a recording, is wildly disproportionate. `RegisterEventHotKey` asks for nothing and never shows us another key. Registration can fail if another app owns ⌥⌘R; that is reported rather than left as a dead shortcut. Note `isolated deinit` — the Carbon refs are main-actor state and the callback holds an unretained pointer, so a nonisolated deinit both fails to compile and would leave a handler able to resurrect freed memory |
 | 2026-08-16 | **`doctor` probes the microphone before it reports on the permission, and the probe wins** | After the bundle id and certificate changed, the report printed "microphone — not yet requested, start a recording once" directly above a passing **mic level** probe, and the recording that followed needed no prompt. Not a permission bug: `AVCaptureDevice.authorizationStatus` was read at the top of `run()`, the level probe *is* what triggers the prompt, and the status was never re-read — so on any fresh install the line is stale for the rest of the process. Now the probe runs first and its result settles the check, which is also the right precedence under invariant 5: samples that came back non-zero prove the grant, the status is a hint about it. Falls back to the status when no probe ran (startup skips them for the 2 s they cost) |
 | 2026-08-16 | **Developer ID signing, Hardened Runtime and a notarize path; bundle id moved to `io.github.sylvainlafitte.plume`** | The bundle id was `com.plume.app` — a domain we do not own — and changing it after anyone installs resets their TCC grants, so it had to happen before the first release and cost nothing today (meetings live in `~/Meetings`, settings in `~/Library/Application Support/Plume`; neither is keyed to the id). Signing now prefers Developer ID, since Apple Development is refused by Gatekeeper on every Mac but this one. The Hardened Runtime is applied to **every** build rather than only release ones: it is mandatory for notarization *and* it denies the microphone unless the entitlement grants it, failing exactly the invariant-5 way — no error, plausible format, all zeros — so a release-only runtime would hide that until the one build that ships. `--timestamp` is deliberately confined to the notarize path (a round-trip to Apple per build otherwise); it is what keeps a shipped release valid after the certificate expires. Verified on the installed bundle: `Authority=Developer ID Application`, `flags=0x10000(runtime)`, entitlement present |
 | 2026-08-16 | **`Vocabulary.md`: one global glossary, injected above the untrusted preamble** | Separates two problems that look like one. ASR mishearing cannot be fixed here — Parakeet has no hotword/biasing hook and the audio is deleted — so the glossary is *repair at summary time*: the model recognises "Kodi" as Cody and spells it correctly in the document you keep. Global, not per-meeting: the jargon that matters is stable across meetings and a per-meeting file is friction at the worst moment. It goes **before** `untrustedPreamble`, since that preamble declares everything below it un-obeyable — right for a recording, wrong for a file the user wrote — and it is scoped to spelling/identification with an explicit "a term appearing here is never evidence that it came up", so it cannot smuggle content into a summary. Reaches `single`, `reduce`, `identity` **and** `window` (short and static, unlike the notes, and the window pass is where an unplaceable term gets dropped). The seed is entirely HTML comments so an unedited file contributes nothing — `strippingComments` is what enforces that, tests included. Rejected: rewriting the transcript from the glossary — a bad fuzzy match would be silent and unrecoverable |

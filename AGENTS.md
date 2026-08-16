@@ -23,9 +23,9 @@ commit); this file wins over PLAN.md, which is *why*, not *what is*.
 ## 0. How Plume is put together
 
 One SwiftPM package. `Sources/PlumeKit/` holds everything (`Audio`, `Transcription`, `Meeting`,
-`Summary`, `UI`, plus `App`/`AppState`/`Config`/`Doctor` at the root); `Sources/plume/main.swift`
-is a five-line shim so the test target can `@testable import` without depending on an `@main`
-target.
+`Summary`, `UI`, plus `App`/`AppState`/`Config`/`Doctor`/`Log`/`LoginItem`/`Notify` at the root);
+`Sources/plume/main.swift` is a five-line shim so the test target can `@testable import` without
+depending on an `@main` target.
 
 ```
 menubar toggle
@@ -46,12 +46,31 @@ TranscriptionCoordinator (actor, serial; .plume/state.json IS the queue)
 
 [human trigger only — see §2]
 SummaryEngine (actor)
- ├─ Prompt.single → OllamaClient.stream, falling back to map-reduce on contextExceeded
+ ├─ Prompt.single (VocabularyStore glossary + notes guidance) → OllamaClient.stream,
+ │      falling back to map-reduce on contextExceeded
  ├─ buffer fully, then MeetingDocument.updateRegion(.summary)
  ├─ MeetingIdentityDeriver → title applied; speaker names → proposals.json (await a click)
  ├─ MeetingAdmin.renameFolder → returns the new session URL
  └─ state.json: summarized
 ```
+
+**Launch does more than start the menu bar**, and the order matters:
+
+```
+applicationDidFinishLaunching
+ ├─ TempSweep.run            reclaim a crashed diarization's scratch files (R8)
+ ├─ DoctorReport.run         no probes — they cost ~2s and play a tone
+ ├─ SetupWindowController    shown only if the models are missing
+ ├─ GlobalHotkey.register    ⌥⌘R; logs and continues if another app owns it
+ ├─ NotificationRouter       set BEFORE anything posts, or a click has nowhere to go
+ ├─ CameraWatch.startIfEnabled   opt-in; usually does nothing
+ └─ transcription.resumePending  the queue is just a rescan of state.json
+```
+
+**Windows, and who owns them.** `MeetingPanelController` → three `NSWindow`s (pill, recording,
+wrap-up); `HistoryWindowController` → Meetings; `SettingsWindowController` → Settings;
+`SetupWindowController` → Setup & Checks. Everything readiness-related renders `DoctorReport`:
+that window and `plume doctor` are two renderers of one engine (§2).
 
 **The folder is the database.** No index. `.plume/state.json` is simultaneously the durable stage
 machine and the work queue, so `resumePending()` at launch just rescans; `MeetingLibrary` lists
@@ -102,6 +121,8 @@ an earlier design. **Don't "fix" them without asking.**
 
 | Looks like | Actually |
 |---|---|
+| Call detection never starts a recording | It notifies, and the notification's button starts one — the click is the consent. Off by default (`call_detection`), camera-triggered, and blind to audio-only calls on purpose: a false positive that recorded a meeting is the only unrecoverable failure this feature could have. |
+| Setup and diagnostics are one window | Merged 2026-08-16. They asked the same six `DoctorReport` checks, and the split had already produced two readings of one probe. `DoctorReport` is the engine; the window and `plume doctor` are both renderers. Probes stay behind a button (~2 s, plays a tone), and the window auto-opens only when the models are missing. |
 | No transcript view in the app | Deliberate. The transcript is summarizer input and text in `meeting.md`. Speaker rows show sample lines so you can identify a voice without one. |
 | Notes have no automatic timestamps | Reversed in Phase 5: stamps went stale whenever a line was edited, and most notes aren't anchored to a moment. ⌘T inserts one on purpose. |
 | Summarizing is manual | The wrap-up gate is the point — you add final thoughts *then* summarize. A meeting resting at `transcribed` forever is normal. |
@@ -119,20 +140,24 @@ an earlier design. **Don't "fix" them without asking.**
 | `state.json` carries a `machine` id, and `resumePending` skips foreign sessions | For the case where the meetings root is a *synced* folder shared by two Macs. Looks like dead code on a single Mac — `isOwnedByThisMachine` is always true there, including for pre-stamp sessions, which is why it's `String?`. Without it the second Mac adopts the first's `recorded` session and transcribes audio that may still be downloading, then deletes it (invariant 6). Only the unattended path is guarded; recording enqueues its own session directly. The id lives beside `config.json`, never in the meetings root — it must not sync. |
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
 
-Genuinely **not built yet** (different thing): `SMAppService` login item, a Carbon global
-hotkey, Phase 7 Ask — now scoped as its own **global** surface with the per-meeting tab as the
+Genuinely **not built yet** (different thing): Phase 7 Ask — now scoped as its own **global** surface with the per-meeting tab as the
 N=1 case, not a row and not only a tab (PROGRESS.md, "Road to public, and to Ask").
 
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 149 tests
+swift build && swift test                      # library + 165 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
 ./build-app.sh release notarize                # release: notarize, staple, dist/Plume-<v>.zip
 ./.build/debug/plume doctor                    # checks — but see below
 ./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
 ./.build/debug/plume summarize <session-dir>   # dev: summarize in place
+/Applications/Plume.app/Contents/MacOS/plume loginitem [register|unregister]
 ```
+
+The last one only means anything from inside the bundle: `SMAppService` keys on the *calling*
+app, so a bare binary always reports `notFound`. Runtime log: `~/Library/Logs/Plume/plume.log`
+(rotates once at 1 MB); per-session transcription logs stay in `.plume/transcribe.log`.
 
 **Never test audio capture with `swift run`; the result is meaningless either way.** A bare
 binary has no TCC identity — capture is attributed to the *responsible process*, i.e. your
@@ -203,6 +228,31 @@ resize; and never mutate `styleMask` after init — typing silently stops workin
 metrics generally lose to the hosting view:** `minSize`/`contentMinSize` are set and still
 ignored once it is installed, so the floor is enforced in `windowWillResize` — the one point
 AppKit asks before committing a drag. Level and `collectionBehavior` are safe to mutate.
+
+**Notifications must be posted *and* routed.** `osascript -e 'display notification'` posts as
+**Script Editor** — so clicking one opens Script Editor, not Plume. That was the right trade
+before the app had a bundle; now `Notify` uses `UNUserNotificationCenter`, keeping osascript only
+for the bundle-less CLI. And the API alone is not enough: with no delegate macOS merely
+*activates* the app, which for an accessory app means fronting whatever window exists — a
+"you aren't recording" reminder opened **Settings**. `NotificationRouter` sets the delegate and
+registers the category *before* anything can post.
+
+**`fixedSize(horizontal:false, vertical:true)` belongs on text that must wrap, never on a
+container that must scroll.** Both failures shipped on the same day: on the Settings *container*
+it forced the window past the bottom of the screen with no scrollbar (nothing is ever clipped, so
+nothing scrolls); missing from the setup window's `Text`s, SwiftUI compressed each to one clipped
+line.
+
+**Test-only path overrides are `@TaskLocal`, not locks.** `Config.withPath` and
+`TemplateStore.withDirectory` exist so tests don't rewrite the developer's real config and
+templates. A lock compiles and is Swift 6-clean but is process-wide, and Swift Testing runs tests
+in parallel — the lock version failed `ConfigTests` immediately, because a concurrent suite read
+another test's override.
+
+**`SMAppService.mainApp.status == .notFound` means "never registered", not "no bundle."**
+`.notRegistered` is what the name suggests and not what macOS returns. `register()` from
+`.notFound` succeeds and goes straight to `.enabled`; only a *failing* register is a real
+problem.
 
 **A menubar-only app still needs a main menu, or ⌘C beeps.** `LSUIElement` means no menu bar
 is drawn, but macOS routes standard editing commands through the **main menu's key
