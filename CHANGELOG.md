@@ -9,22 +9,7 @@ and does not appear here.
 
 ## [Unreleased]
 
-### Added
-
-- A **Disclosure** button in the recording panel: copies a one-line "I'm recording this" notice
-  to paste into the meeting chat. Configurable with `disclosure_text`, because the sufficient
-  wording is jurisdictional — notice alone is not consent everywhere. Plume never posts it for
-  you; it is not a participant in the call.
-- **On-disk format versions** for `meeting.md` (the frontmatter `plume:` key) and `.plume/state.json`
-  (a new `version` field). Both tolerate older and missing values and refuse to act on newer ones:
-  Plume will not rewrite a document, or transcribe a session, written by a version it does not
-  understand. With the audio deleted after transcription, a bad rewrite has nothing to recover from.
-
-### Changed
-
-- `CFBundleVersion` is now stamped from `git rev-list --count HEAD` at build time instead of being
-  hand-set. It shipped as `1` in 0.1.0 and would have stayed there — nothing in the signing or
-  notarization toolchain has an opinion about it.
+Nothing yet.
 
 ## [0.1.0] — 2026-08-16
 
@@ -54,10 +39,22 @@ stays on the machine.
 - **Setup & Checks window** that downloads the speech models with progress, and grants *and
   verifies* both audio permissions by capturing a tone. An unauthorized system-audio tap reports
   success and records silence, so capturing is the only check that tells the truth.
+- **A recording disclosure.** The recording panel's **Disclosure** button copies a one-line
+  "I'm recording this" notice to paste into the meeting chat, overridable with `disclosure_text` —
+  the sufficient wording is jurisdictional, and notice alone is not consent everywhere. Plume never
+  posts it for you; it is not a participant in the call.
 - **Optional extras**: launch at login, and camera-triggered "you aren't recording" notifications
   whose button starts a recording. Both off unless you turn them on; detection never starts a
   recording by itself.
-- Developer ID-signed, notarized and stapled release build.
+- **On-disk format versions** for `meeting.md` (the frontmatter `plume:` key) and
+  `.plume/state.json` (a `version` field). Both tolerate older and missing values and refuse to
+  act on newer ones: Plume will not rewrite a document, or transcribe a session, written by a
+  version it does not understand. With the audio deleted after transcription, a bad rewrite has
+  nothing to recover from.
+- An app icon.
+- Developer ID-signed, notarized and stapled release build, with `CFBundleVersion` stamped as a
+  monotonic build number from the commit count. It is not the release number and does not track
+  this file.
 
 [Unreleased]: https://github.com/sylvainlafitte/Plume/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/sylvainlafitte/Plume/releases/tag/v0.1.0
