@@ -21,9 +21,21 @@ enum DoctorReport {
     /// short tone, so startup skips them; `doctor` and the settings window run
     /// them deliberately.
     static func run(recordingsRoot: URL, probeAudio: Bool = false) -> [Check] {
-        [
-            checkMicrophone(),
-            checkMicLevel(probe: probeAudio),
+        // The level probe runs *before* the permission check, and the permission
+        // check reads its result. Two reasons, in order of importance:
+        //
+        // 1. Invariant 5. Samples that came back non-zero are proof of the grant;
+        //    `authorizationStatus` is a hint about it. Where they disagree, the
+        //    capture wins.
+        // 2. The probe is what triggers the prompt on a fresh install, so a
+        //    status read before it is stale for the rest of the run. Observed
+        //    2026-08-16 after the bundle id changed: "microphone — not yet
+        //    requested, start a recording once" printed directly above a passing
+        //    mic level probe, for a user who had just granted it.
+        let micLevel = checkMicLevel(probe: probeAudio)
+        return [
+            checkMicrophone(levelProbe: micLevel.status),
+            micLevel,
             checkSystemAudio(probe: probeAudio),
             checkRecordingsRoot(recordingsRoot),
             checkTranscription(),
@@ -66,7 +78,14 @@ enum DoctorReport {
             remediation: "\(wanted) @ num_ctx \(Config.summaryContextTokens())")
     }
 
-    static func checkMicrophone() -> Check {
+    /// `levelProbe` is the outcome of the empirical mic capture, when one ran.
+    /// A probe that recorded real audio settles the question — the process
+    /// cannot have captured samples it was not permitted to capture — and it is
+    /// the only evidence available that does not go stale mid-run.
+    static func checkMicrophone(levelProbe: CheckStatus = .warn("not probed")) -> Check {
+        if levelProbe.isOK {
+            return Check(name: "microphone", status: .ok, remediation: nil)
+        }
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
         switch status {
         case .authorized:

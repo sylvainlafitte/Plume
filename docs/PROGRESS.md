@@ -18,15 +18,17 @@ one-line pointer here.
 
 ## Current state
 
-**Phase:** 1–6 built. 7 (Ask) next, and optional. The architecture-review pass closed 2026-08-16
-— see "The refactor pass" below for what was done, what was declined, and the two gaps it left.
-**Next action:** either Phase 7 (Ask — a third tab in `MeetingDetailView`), or close out the
-carried debt below. **Before either: the refactor's UI paths have no automated coverage** —
-summarize, regenerate-failure and speaker rename in both surfaces want one manual pass through
-the `.app`. The R3 corpus is the higher-value item: it is the only thing standing
-between Phase 2 and "done", and it decides a default for the modal meeting.
+**Phase:** 1–6 built; the work in flight is **distribution**, not a phase. 7 (Ask) is next and
+still optional, rescoped as a global surface. The architecture-review pass closed 2026-08-16 —
+see "The refactor pass" for what was done, what was declined, and the two gaps it left.
+**Next action:** signing and notarization are **done** (see "Road to public"): `Plume-0.1.0.zip`
+is notarized, stapled and Gatekeeper-accepted. What is left before a release is the clean-Mac
+verification, then README + LICENSE and the public-repo checklist — including the one item that
+must be settled before the repo is public, since git history is permanent: whether the
+transcript-shaped text in PLAN.md came from a real meeting. The R3 corpus still runs in
+parallel and still gates Phase 2. Ask stays deliberately after distribution.
 
-**What works end to end today** (144 tests): menubar record → two-track capture → Parakeet transcription →
+**What works end to end today** (149 tests): menubar record → two-track capture → Parakeet transcription →
 offline diarization + echo filter → `meeting.md` with marked regions → audio deleted → floating
 panel for notes → templated summary via Ollama → title derived and folder renamed → speaker
 rename/merge, plus a Meetings window for going back to any of it — with rename, delete-to-Trash
@@ -50,13 +52,13 @@ Phases 1–6 are built. Per-phase detail moved to
 
 | Phase | Open |
 |---|---|
-| 1 — Fork and foundations | `SMAppService.mainApp` login item, deferred |
+| 1 — Fork and foundations | `SMAppService.mainApp` login item — now folded into packaging (see "Road to public"), because it is install UX |
 | 2 — Diarization and echo | **Verify on the R3 corpus.** Every multi-speaker path is unit-tested only. *Done when:* a 3-person call yields distinct speakers **and a 1:1 yields exactly one remote speaker** — the second is the one expected to fail |
 | 3 — Markdown + stage machine | — |
 | 4 — Summaries | — |
 | 5 — The panel | Global hotkey (needs Carbon `RegisterEventHotKey`); the menubar item covers it today |
 | 6 — History window | — |
-| 7 — Ask (optional, first to cut) | A **third tab** in `MeetingDetailView`, so it lands in both surfaces for free (reversed from "row under Summary" — PLAN.md F11); whole transcript in context where it fits, Phase 4's chunking when it doesn't; save-answer-to-notes |
+| 7 — Ask (optional, first to cut) | **Scope changed 2026-08-16: Ask is global, not per-meeting.** A tab is scoped to the selected meeting and global Ask has none, so it wants its own surface with the per-meeting tab as the N=1 case — retrieval, summaries-by-default and citation are decided in "Road to public, and to Ask" before any code |
 
 ---
 
@@ -129,6 +131,118 @@ pre-existing; they belong in the backlog.
 
 ---
 
+## Road to public, and to Ask
+
+Agreed 2026-08-16. Ordered by **lead time and cost of being wrong**, not by size. The two
+findings that set the order are in the first item and in "Before the repo goes public" — both
+were discovered by reading the repo, not assumed.
+
+**Start now, in parallel with everything else — these are the only items with an external
+dependency:**
+
+1. [x] **Developer ID Application certificate — obtained 2026-08-16.**
+       `Developer ID Application: SYLVAIN J R LAFITTE (324ZRWQHHV)`. The team id differs from
+       the development cert's (99VBSLFB4T); **notarization uses 324ZRWQHHV**. Private key
+       exported to `.p12` and stored 2026-08-16 — that backup is what stands between a lost
+       keychain and re-signing every future release with a different certificate, which would
+       reset permissions for everyone who installed this one. Developer ID certs are also
+       limited (5 per team), so they are not casually replaceable.
+2. [ ] **Record the R3 corpus** — already listed under "Human-dependent, start early". Needs
+       other people, so it is never faster than the calendar, and it is the last thing between
+       Phase 2 and done.
+
+**Then, in order:**
+
+3. [~] **Packaging and distribution.** *Signing landed 2026-08-16:* `build-app.sh` prefers
+       Developer ID over Apple Development over ad-hoc, signs **every** build with the Hardened
+       Runtime and `Resources/Plume.entitlements`, and `./build-app.sh release notarize`
+       re-signs with a secure timestamp → submits → staples → `spctl`-verifies → writes
+       `dist/Plume-<version>.zip` and its sha256. Bundle id is now
+       `io.github.sylvainlafitte.plume`. **First notarized artifact produced 2026-08-16**:
+       `dist/Plume-0.1.0.zip`, verified `stapler validate` OK and
+       `spctl → accepted, source=Notarized Developer ID`, secure timestamp present. Note the
+       `/Applications` copy stays *unnotarized* — `notarize` stages in /tmp by design and never
+       installs, so checking the installed bundle is not a check of the release.
+       **Open:** verify on a Mac that has never seen Plume, then the GitHub Release, then a
+       Homebrew cask in our own tap — `brew install --cask <tap>/plume` is the "one terminal
+       command". **Updates: not Sparkle, initially** — an appcast, an
+       EdDSA key and a self-updating signed app are real machinery for a project whose users
+       can re-run brew. Start with a version check against the GitHub releases API that opens
+       the release page. Pull the deferred `SMAppService` login item into this item: it is
+       install UX, not a Phase 1 leftover.
+4. [ ] **First-run experience (PLAN R7, R8).** What makes "installable on a new machine" true
+       rather than nominal. Model download is still lazy inside `ParakeetEngine.prepare()`, so
+       a fresh Mac's first meeting stalls with no progress — and **this dev machine cannot
+       reproduce it** (warm FluidAudio cache, logged 2026-08-14). Move the pull into `doctor`
+       with progress; have `doctor` state the Ollama and model requirements plainly. R8's
+       temp-file sweep rides along. Shipping before this makes every new user's first
+       impression a hang.
+5. [ ] **README, LICENSE, public prep.** After 3–4, so the README documents something that
+       actually installs. See the checklist below.
+6. [ ] **Phase 1–6 leftovers**, unequal in value: test-injectable paths for `Config.path` /
+       `TemplateStore.directory` (cheap, and unblocks the two regression tests named in "The
+       refactor pass"); the manual `.app` pass over the refactored UI paths; the global hotkey
+       last — the menubar item covers it.
+7. [ ] **Ask** — design notes below.
+8. [ ] **Video-call detection, scoped down: suggest, never auto-record.** Detection is
+       heuristic (camera/mic use by a known bundle id) and a false positive that starts
+       recording is the one failure here that is unrecoverable socially rather than
+       technically. A notification offering to start, which does nothing if ignored, is the
+       version worth building. There is currently **no such code at all** — the only
+       call-adjacent line is a comment in `MicRecorder` about a call app reconfiguring the
+       input device.
+
+### Before the repo goes public — one-way door
+
+- [ ] Remove the committed spike `.app` bundles (`spikes/panel/SpikeB.app`,
+      `spikes/responsible-process/SpikeA.app`) — binaries carrying our signing identity.
+- [ ] Grep the history for real meeting content. `docs/PLAN.md` contains transcript-shaped
+      text; establish whether it is illustrative or from a real recording **before** it is
+      public, because git history is forever.
+- [ ] **LICENSE: MIT, retaining quill's copyright** (`LICENSE-quill` is already here). Keeping
+      the upstream notice is an obligation of the licence, not a courtesy. Add our own line and
+      a fork note.
+- [ ] Settle **R4's recording-disclosure wording** — a real question in two-party-consent
+      jurisdictions, and it should exist before strangers use this.
+- [ ] README must state: what it is, the install command, the dependencies and their disk cost,
+      what each permission is for, **what leaves the machine (nothing but localhost Ollama)**,
+      that audio is deleted after transcription, where data lives, and what uninstall does and
+      does not remove.
+
+### Also missing, raised 2026-08-16
+
+- [x] **Bundle id** — `io.github.sylvainlafitte.plume`, 2026-08-16.
+- [x] **Version** — `0.1.0` confirmed as the first public number, 2026-08-16.
+- [ ] **`CFBundleVersion` is still `1` and never increments.** Decide the scheme before the
+      second release: `CFBundleShortVersionString` is the user-facing `0.1.0`, `CFBundleVersion`
+      wants to be a monotonic build number the script bumps. LaunchServices and any update check
+      key on it; notarization does not care, which is why this can slip past unnoticed.
+- [ ] **App icon** — there isn't one.
+- [ ] **A log story for other people.** Failures land in `.plume/transcribe.log` per session;
+      there is no app-level log to ask a bug reporter for.
+- [ ] **Format versioning** for `meeting.md` and `state.json`. Once other people have data on
+      disk, a format change needs a migration or a documented tolerance. Cheap now.
+- [ ] **CI**: a GitHub Action running `swift test` on a macOS runner. 149 tests only stay
+      honest if a contributor's PR runs them.
+
+### Ask — three decisions to take before writing code
+
+- **A new surface, not the third tab.** This *reverses* the 2026-08-15 decision below, which
+  itself reversed PLAN F11 — record it as such when it happens. The reason: a tab is scoped to
+  the selected meeting, and global Ask has no selected meeting. Keep the per-meeting tab *and*
+  add a global window over one engine, where per-meeting is the N=1 case.
+- **Retrieval before context.** ~300 meetings of summaries do not fit 32k, so something must
+  choose. Start with date range, keyword scoring over title/summary/speaker names, and an
+  explicit meeting picker. Measure what that misses **before** adding a vector index that then
+  has to stay in sync with a folder people edit by hand.
+- **Summaries by default, transcripts opt-in** — for cost *and* quality: transcripts are noisy
+  and crowd out signal at the same token budget.
+- **Answers must cite the meetings they used.** Otherwise the answer is unverifiable, and the
+  folder-is-the-database premise means the user can always go read the source. Same principle
+  as invariant 3.
+
+---
+
 ## Backlog — raised, thought through, not built
 
 Ideas with enough analysis attached that picking one up doesn't start from zero. Each says
@@ -173,6 +287,8 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | 2026-08-15 | **`contentTintColor` does not colour a status item's template image.** The recording icon is a pre-tinted, non-template copy instead | Reported as "it goes from white to black", not red. A template image's rendering treatment wins over the tint, so the icon dropped from the menu bar's own foreground colour to black — on a dark menu bar that reads as the icon vanishing, which is the opposite of a recording indicator (R4). Idle stays a template so it still follows light/dark; recording bakes the red in and turns the flag off |
 | 2026-08-15 | Panel windows are not movable by background; headers and the pill carry `WindowDragGesture()` | Movable-by-background makes every content drag move the window, silently breaking drag-to-select and turning a pill drag into a click. The pill also stopped being a `Button` for the same reason |
 | 2026-08-16 | **The panel's anchor corner is chosen per expand and stored, replacing the fixed top-right rule** | Top-right was never load-bearing — the invariant is only that collapse and expand pivot on the *same* corner, or a round-trip drifts the pill by the size difference. Fixed at top-right, a pill parked in a bottom or left corner expanded straight off the screen. `PanelAnchor` now flips an axis only when the preferred corner would overflow the screen the pill is on (flip-on-need, so behaviour with room is unchanged), clamps as a backstop for the cases where no corner fits, and the result is **stored until the next expand**. Re-deriving it at collapse was tried on paper and rejected: after a bottom flip the window sits high, the re-derived corner reads "top", and the pill returns hundreds of points from where it left — `PanelAnchorTests` pins both the round-trip and that failure |
+| 2026-08-16 | **`doctor` probes the microphone before it reports on the permission, and the probe wins** | After the bundle id and certificate changed, the report printed "microphone — not yet requested, start a recording once" directly above a passing **mic level** probe, and the recording that followed needed no prompt. Not a permission bug: `AVCaptureDevice.authorizationStatus` was read at the top of `run()`, the level probe *is* what triggers the prompt, and the status was never re-read — so on any fresh install the line is stale for the rest of the process. Now the probe runs first and its result settles the check, which is also the right precedence under invariant 5: samples that came back non-zero prove the grant, the status is a hint about it. Falls back to the status when no probe ran (startup skips them for the 2 s they cost) |
+| 2026-08-16 | **Developer ID signing, Hardened Runtime and a notarize path; bundle id moved to `io.github.sylvainlafitte.plume`** | The bundle id was `com.plume.app` — a domain we do not own — and changing it after anyone installs resets their TCC grants, so it had to happen before the first release and cost nothing today (meetings live in `~/Meetings`, settings in `~/Library/Application Support/Plume`; neither is keyed to the id). Signing now prefers Developer ID, since Apple Development is refused by Gatekeeper on every Mac but this one. The Hardened Runtime is applied to **every** build rather than only release ones: it is mandatory for notarization *and* it denies the microphone unless the entitlement grants it, failing exactly the invariant-5 way — no error, plausible format, all zeros — so a release-only runtime would hide that until the one build that ships. `--timestamp` is deliberately confined to the notarize path (a round-trip to Apple per build otherwise); it is what keeps a shipped release valid after the certificate expires. Verified on the installed bundle: `Authority=Developer ID Application`, `flags=0x10000(runtime)`, entitlement present |
 | 2026-08-16 | **`Vocabulary.md`: one global glossary, injected above the untrusted preamble** | Separates two problems that look like one. ASR mishearing cannot be fixed here — Parakeet has no hotword/biasing hook and the audio is deleted — so the glossary is *repair at summary time*: the model recognises "Kodi" as Cody and spells it correctly in the document you keep. Global, not per-meeting: the jargon that matters is stable across meetings and a per-meeting file is friction at the worst moment. It goes **before** `untrustedPreamble`, since that preamble declares everything below it un-obeyable — right for a recording, wrong for a file the user wrote — and it is scoped to spelling/identification with an explicit "a term appearing here is never evidence that it came up", so it cannot smuggle content into a summary. Reaches `single`, `reduce`, `identity` **and** `window` (short and static, unlike the notes, and the window pass is where an unplaceable term gets dropped). The seed is entirely HTML comments so an unedited file contributes nothing — `strippingComments` is what enforces that, tests included. Rejected: rewriting the transcript from the glossary — a bad fuzzy match would be silent and unrecoverable |
 | 2026-08-16 | **Notes guidance strengthened beyond the conflict rule, and it lives in `Prompt`, not the templates** | The single instruction ("where they conflict with the transcript, prefer the notes") fired only on contradiction, so a model that found none had nothing left to follow and could legitimately ignore the notes. Now four rules: conflict, *spelling* of names/jargon (ASR renders unfamiliar words phonetically, the attendee doesn't), notes-only content is real content and must survive, and what someone stopped to type is a weighting signal — closed with an explicit "none of this licenses invention" so it cannot fight the templates' no-invention rule. Kept in `Prompt` because it reaches every summary including hand-written templates, whereas `seedIfNeeded` never overwrites an existing file, so a seed edit reaches only installs that have never run. **Still open:** `Prompt.window` does not see the notes, so the compression stage that decides what to discard is blind to what the attendee cared about — a real gap, but fixing it spends context in every window and wants measuring first |
 | 2026-08-16 | **Check the installed binary's timestamp before trusting a UI repro.** The first report that the new anchoring "still goes top-right" was a stale `/Applications/Plume.app` — the panel change had never been built into it | Costly failure mode, because a stale bundle reproduces the *old* bug perfectly and every explanation you invent for it is plausible. `ls -la /Applications/Plume.app/Contents/MacOS/plume` against the last commit time settles it in one command, and is now the first step before instrumenting any panel behaviour. The temporary `os_log` tracing added to diagnose it was removed once the rebuild confirmed the fix |

@@ -135,7 +135,7 @@ private final class SystemTapProbe {
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
-    private let queue = DispatchQueue(label: "com.plume.app.doctor-tap")
+    private let queue = DispatchQueue(label: "io.github.sylvainlafitte.plume.doctor-tap")
     private let meter = Meter()
 
     func capture(for duration: TimeInterval) -> AudioProbe.Level? {
@@ -150,7 +150,7 @@ private final class SystemTapProbe {
         guard AudioHardwareCreateProcessTap(description, &newTap) == noErr else { return nil }
         tapID = newTap
 
-        let uid = "com.plume.app.doctor-aggregate-\(UUID().uuidString)"
+        let uid = "io.github.sylvainlafitte.plume.doctor-aggregate-\(UUID().uuidString)"
         let config: [String: Any] = [
             kAudioAggregateDeviceNameKey: "plume doctor",
             kAudioAggregateDeviceUIDKey: uid,

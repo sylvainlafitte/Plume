@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.plume.app</string>
+    <string>io.github.sylvainlafitte.plume</string>
     <key>CFBundleName</key>
     <string>Plume</string>
     <key>CFBundleDisplayName</key>

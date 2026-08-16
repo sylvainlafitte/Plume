@@ -33,7 +33,7 @@ final class SystemAudioRecorder {
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
-    private let queue = DispatchQueue(label: "com.plume.app.system-tap")
+    private let queue = DispatchQueue(label: "io.github.sylvainlafitte.plume.system-tap")
     private(set) var isRecording = false
 
     // Thread-safe shared state: accessed from both the main thread and the

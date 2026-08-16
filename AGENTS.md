@@ -110,7 +110,7 @@ an earlier design. **Don't "fix" them without asking.**
 | Speaker names aren't applied automatically | Invariant 3. |
 | Audio vanishes after transcription | Invariant 6, a requirement not a bug. |
 | The panel opens on Notes but Meetings opens on Summary | Deliberate, not an inconsistency. The panel is where you *write* a record; the window is where you *read* one. Fixed per surface, never per meeting — a default that varied with the selection would make the tab jump as you scroll the list. |
-| Summarize sits below the tabs, not inside Notes | So the default tab isn't load-bearing: the action stays reachable from either tab. It also leaves the bottom edge free for Phase 7's Ask tab. |
+| Summarize sits below the tabs, not inside Notes | So the default tab isn't load-bearing: the action stays reachable from either tab. It also leaves the bottom edge free for a future per-meeting Ask tab. |
 | A recording starts as the pill, and both expanded modes share one resizable frame | Reversed together. Two fixed sizes (340×300 recording, 430×580 wrap-up) assumed a live call wanted a smaller footprint — moot once the panel is only on screen when you deliberately open it. Collapse and expand must **pivot on the same corner**, or a round-trip drifts the pill by the difference in size. Top-right is only the *preferred* corner: `PanelAnchor` flips an axis when expanding from it would run off the screen, and the chosen corner is stored until the next expand — re-deriving it at collapse time is what makes the pill wander (covered by `PanelAnchorTests`). |
 | Two echo settings, not one | Different points in the pipeline and not interchangeable: `transcript_echo_filter` removes duplicates from the finished transcript (safe, default on), `mic_voice_processing` stops the echo reaching the recording but makes macOS duck all other audio for the whole meeting. Presented together, weaker one first. |
 | No UI for the vocabulary file, and it cannot fix the transcript | Both deliberate. `Vocabulary.md` is a markdown file beside `Templates/` — same premise, edited in your own editor. And it is read at *summary* time: Parakeet exposes no biasing hook (FluidAudio's `vocabulary` is the model's own token table), so a misheard term is already in the transcript, whose audio is gone. The glossary makes the **summary** spell it right; rewriting the transcript from it was rejected as invariant-1 territory. |
@@ -120,13 +120,15 @@ an earlier design. **Don't "fix" them without asking.**
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
 
 Genuinely **not built yet** (different thing): `SMAppService` login item, a Carbon global
-hotkey, Phase 7 Ask — which will be a third tab in `MeetingDetailView`, not a row.
+hotkey, Phase 7 Ask — now scoped as its own **global** surface with the per-meeting tab as the
+N=1 case, not a row and not only a tab (PROGRESS.md, "Road to public, and to Ask").
 
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 144 tests
+swift build && swift test                      # library + 149 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
+./build-app.sh release notarize                # release: notarize, staple, dist/Plume-<v>.zip
 ./.build/debug/plume doctor                    # checks — but see below
 ./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
 ./.build/debug/plume summarize <session-dir>   # dev: summarize in place
@@ -142,8 +144,15 @@ while proving nothing about the app. Both were observed hours apart from one bin
 stamps with `com.apple.FinderInfo` — what codesign rejects as *"resource fork, Finder
 information, or similar detritus"*. Stripping it loses a race with the file provider.
 (`com.apple.provenance` is on everything, is **not** removable, and codesign tolerates it —
-not the culprit.) Signing uses the Apple Development identity; ad-hoc keys its Designated
-Requirement to the cdhash, so every rebuild would re-prompt for permissions.
+not the culprit.) Signing prefers **Developer ID Application** and falls back to Apple Development
+(ad-hoc keys its Designated Requirement to the cdhash, so every rebuild would re-prompt for
+permissions; Apple Development is refused by Gatekeeper on any Mac but this one). Every build
+carries the **Hardened Runtime** — notarization requires it, and it denies the microphone
+unless `Resources/Plume.entitlements` grants `com.apple.security.device.audio-input`, failing
+the invariant-5 way: no error, all zeros. `./build-app.sh release notarize` re-signs with a
+secure timestamp, submits, staples and verifies with `spctl`; the app must be **stapled before
+it is zipped**, since a zip cannot carry a ticket. Bundle ID `io.github.sylvainlafitte.plume`,
+team `324ZRWQHHV`.
 
 ## 4. Constraints that will cost you time
 

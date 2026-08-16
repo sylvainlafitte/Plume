@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Required by the Hardened Runtime, which notarization requires.
+         The runtime denies microphone access unless the binary carries this,
+         and — like every other capture failure on this platform — it fails the
+         way invariant 5 describes: no error, correct-looking format, all zeros.
+         There is no App Sandbox here, so this is the only access entitlement
+         needed; Plume reads and writes ~/Meetings as an ordinary process. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>
