@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// Your names, products and jargon, as one markdown file you edit yourself.
 ///
@@ -80,15 +79,8 @@ enum VocabularyStore {
         return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Cached on the file's own modification date, for the same reason
-    /// `TemplateStore.all()` is: this is read on every summarize, and editing the
-    /// file is the entire premise, so a stale read would be indistinguishable
-    /// from the feature not working.
-    private struct Cache: Sendable {
-        var text: String?
-        var fingerprint: Date?
-    }
-    private static let cache = OSAllocatedUnfairLock(initialState: Cache())
+    /// Cached on the file's own modification date — see `MTimeCache`.
+    private static let cache = MTimeCache<Date, String>()
 
     private static func fingerprint() -> Date? {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
@@ -97,15 +89,9 @@ enum VocabularyStore {
 
     /// The user's vocabulary, or empty if they have not written one.
     static func contents() -> String {
-        if let current = fingerprint(),
-            let hit = cache.withLock({ $0.fingerprint == current ? $0.text : nil })
-        {
-            return hit
+        cache.value(fingerprint: fingerprint) {
+            try? seedIfNeeded()
+            return strippingComments((try? String(contentsOf: url, encoding: .utf8)) ?? "")
         }
-        try? seedIfNeeded()
-        let raw = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        let text = strippingComments(raw)
-        cache.withLock { $0 = Cache(text: text, fingerprint: fingerprint()) }
-        return text
     }
 }

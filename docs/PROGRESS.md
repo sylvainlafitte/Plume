@@ -5,8 +5,8 @@ what was tried and rejected, so nobody re-runs a dead end.
 
 Sibling documents: [AGENTS.md](../AGENTS.md) is the source of truth for how things work *now*,
 and the only one loaded into every session — when work here changes a constraint, update it **in
-the same commit**. [PLAN.md](PLAN.md) is the pre-implementation design record, now mostly history;
-[archive/](archive/) holds closed work.
+the same commit**. [PLAN.md](PLAN.md) is the pre-implementation design record, kept as the
+registry for the `F*`/`R*` numbers cited from code.
 
 **What goes where in this file:** *Current state* is the first thing a new session reads, so keep
 it short and true. *Decisions* and *Tried and rejected* are append-only and are the reason this
@@ -62,8 +62,8 @@ camera-triggered "you aren't recording" notifications whose button starts one; a
 
 ## Phase checklist
 
-Phases 1–6 are built. Per-phase detail moved to
-[archive/PHASES.md](archive/PHASES.md) 2026-08-16; what remains open:
+Phases 1–6 are built. Per-phase detail was archived 2026-08-16 and deleted 2026-08-17 — it is in
+git history if ever needed. What remains open:
 
 | Phase | Open |
 |---|---|
@@ -106,9 +106,9 @@ see "Before the repo goes public". This section is only for what the calendar ga
 
 ## The refactor pass (closed 2026-08-16)
 
-A read-only architecture review proposed thirteen fixes; the review itself is in
-[archive/REFACTOR.md](archive/REFACTOR.md). What matters afterwards is the shape of the
-judgement, not the list:
+A read-only architecture review proposed thirteen fixes; the review itself was archived and then
+deleted 2026-08-17 (in git history). What matters afterwards is the shape of the judgement, not
+the list:
 
 **Done** — the summary model no longer frozen at launch (`SummaryEngine` holds no client);
 invariant-1 write failures surfaced instead of `try?`'d; the two meeting surfaces' duplicated

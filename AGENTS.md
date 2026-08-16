@@ -7,16 +7,14 @@ Forked from [digimata/quill](https://github.com/digimata/quill) (MIT).
 > get them wrong, decisions that look like omissions, and platform traps that fail silently.
 > It is ordered by what a change is likely to cost, not by topic.
 
-**The doc set, and what to read when.** This file is the only required reading; the rest are
-consulted, not read front to back.
+**The doc set.** This file is the only required reading; the rest are consulted.
 
 | | What it is | Read it when |
 |---|---|---|
 | **AGENTS.md** (here) | How Plume works now, and what will cost you if you get it wrong | Always — it is loaded into every session |
 | **[README.md](README.md)** | The only document a user reads: what Plume is, how to install it, what it does, what leaves the machine | You change anything a user sees, installs or configures — and then update it in the same commit |
 | **[docs/PROGRESS.md](docs/PROGRESS.md)** | The log: current state, next action, decisions with their *why*, and dead ends | Starting a session, or before retrying something that smells previously-tried |
-| **[docs/PLAN.md](docs/PLAN.md)** | Pre-implementation design record. Source of the `F*`/`R*` numbers cited elsewhere | A reference points there. Not orientation material — most of it is now history |
-| **[docs/archive/](docs/archive/)** | Closed work, kept for its reasoning | Almost never |
+| **[docs/PLAN.md](docs/PLAN.md)** | Pre-implementation design record, kept as the registry for the `F*`/`R*` numbers cited from code comments | A reference points there |
 
 **Precedence:** the **code** wins over this file (if they disagree, fix the file in the same
 commit); this file wins over PLAN.md, which is *why*, not *what is*.
@@ -24,9 +22,9 @@ commit); this file wins over PLAN.md, which is *why*, not *what is*.
 ## 0. How Plume is put together
 
 One SwiftPM package. `Sources/PlumeKit/` holds everything (`Audio`, `Transcription`, `Meeting`,
-`Summary`, `UI`, plus `App`/`AppState`/`Config`/`Doctor`/`Log`/`LoginItem`/`Notify` at the root);
-`Sources/plume/main.swift` is a five-line shim so the test target can `@testable import` without
-depending on an `@main` target.
+`Summary`, `UI`, plus `App`/`AppState`/`Config`/`Doctor`/`Log`/`LoginItem`/`Notify`/`MTimeCache`
+at the root); `Sources/plume/main.swift` is a five-line shim so the test target can
+`@testable import` without depending on an `@main` target.
 
 ```
 menubar toggle
@@ -71,7 +69,9 @@ applicationDidFinishLaunching
 **Windows, and who owns them.** `MeetingPanelController` → three `NSWindow`s (pill, recording,
 wrap-up); `HistoryWindowController` → Meetings; `SettingsWindowController` → Settings;
 `SetupWindowController` → Setup & Checks. Everything readiness-related renders `DoctorReport`:
-that window and `plume doctor` are two renderers of one engine (§2).
+that window and `plume doctor` are two renderers of one engine (§2). `MeetingPanelController` and
+`HistoryModel` are **two surfaces over one object** — both conform to `MeetingDetailModel` and
+share the detail view *and* the summarize path (§4).
 
 **The folder is the database.** No index. `.plume/state.json` is simultaneously the durable stage
 machine and the work queue, so `resumePending()` at launch just rescans; `MeetingLibrary` lists
@@ -82,10 +82,6 @@ history by reading the first 4 KB of each `meeting.md`.
 `OfflineDiarizer` and `SummaryEngine` (they own non-`Sendable` model managers and serialise long
 work); `OSAllocatedUnfairLock` in `MicRecorder`/`SystemAudioRecorder`, where callbacks are
 real-time and an actor hop is not available.
-
-**Two UI surfaces over one object.** `MeetingPanelController` drives three `NSWindow`s (pill,
-recording, wrap-up); `HistoryModel` drives the Meetings window. Both conform to
-`MeetingDetailModel` and share the view *and* the summarize path — see §4.
 
 ## 1. Invariants — breaking these destroys something unrecoverable
 
@@ -133,8 +129,6 @@ an earlier design. **Don't "fix" them without asking.**
 | Summarizing is manual | The wrap-up gate is the point — you add final thoughts *then* summarize. A meeting resting at `transcribed` forever is normal. |
 | Only four templates, no template editor | Templates are markdown files in a folder; editing one means opening it. A JSON store and an editor UI were both declined. |
 | No in-app markdown editor | Declined. The files are markdown in a folder and every Mac has a good editor. |
-| Speaker names aren't applied automatically | Invariant 3. |
-| Audio vanishes after transcription | Invariant 6, a requirement not a bug. |
 | The panel opens on Notes but Meetings opens on Summary | Deliberate, not an inconsistency. The panel is where you *write* a record; the window is where you *read* one. Fixed per surface, never per meeting — a default that varied with the selection would make the tab jump as you scroll the list. |
 | Summarize sits below the tabs, not inside Notes | So the default tab isn't load-bearing: the action stays reachable from either tab. It also leaves the bottom edge free for a future per-meeting Ask tab. |
 | A recording starts as the pill, and both expanded modes share one resizable frame | Reversed together. Two fixed sizes (340×300 recording, 430×580 wrap-up) assumed a live call wanted a smaller footprint — moot once the panel is only on screen when you deliberately open it. Collapse and expand must **pivot on the same corner**, or a round-trip drifts the pill by the difference in size. Top-right is only the *preferred* corner: `PanelAnchor` flips an axis when expanding from it would run off the screen, and the chosen corner is stored until the next expand — re-deriving it at collapse time is what makes the pill wander (covered by `PanelAnchorTests`). |
@@ -146,13 +140,14 @@ an earlier design. **Don't "fix" them without asking.**
 | Nothing in the app helps you disclose the recording | R4's remedy is the **visible indicator** and nothing more. A Disclosure button that copied a suggested line was built and removed the same day: consent law is jurisdictional and situational, so a canned sentence in a menubar app is either redundant for someone who knows their obligations or falsely reassuring for someone who doesn't — and the second failure is the one that matters. Working out how to get consent is the user's, not Plume's. |
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
 
-Genuinely **not built yet** (different thing): Phase 7 Ask — now scoped as its own **global** surface with the per-meeting tab as the
-N=1 case, not a row and not only a tab (PROGRESS.md, "Road to public, and to Ask").
+Genuinely **not built yet** (different thing): Phase 7 Ask — now scoped as its own **global**
+surface with the per-meeting tab as the N=1 case, not a row and not only a tab (PROGRESS.md,
+"Road to public, and to Ask").
 
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 165 tests
+swift build && swift test                      # library + 174 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
 ./build-app.sh release notarize                # release: notarize, staple, dist/Plume-<v>.zip
 ./.build/debug/plume doctor                    # checks — but see below
@@ -214,16 +209,18 @@ carries the token counts that size the map-reduce fallback. Use `127.0.0.1`. Unl
 only — Ollama is shared.
 
 **The panel is three windows and must stay that way** — because what separates them lives in
-`styleMask`, which cannot be mutated after init. `.titled` is needed to become key so you can
-type while a call stays frontmost, but it carries an invisible ~28pt titlebar: below that
-height `contentLayoutRect` collapses to **zero** and SwiftUI lays content out below the visible
-window. Hence the 22pt pill is `.borderless`. And **wrap-up is an ordinary `NSWindow`**, not a
-floating non-activating panel: the reasons to float expire at Stop, and more importantly a
-`.nonactivatingPanel` can be *key while another app is active*, where ⌘C reaches nothing —
-key equivalents route through the **active** app's main menu. Wrap-up is where a summary gets
-copied out, so it cannot be that kind of window. Level and `collectionBehavior` *are* safe to
-mutate; `styleMask` is not, which is why this is a third window rather than a mode.
-Three more rules the panel depends on, none of them enforced by anything:
+`styleMask`, which cannot be mutated after init (do it anyway and typing silently stops working).
+`.titled` is needed to become key so you can type while a call stays frontmost, but it carries an
+invisible ~28pt titlebar: below that height `contentLayoutRect` collapses to **zero** and SwiftUI
+lays content out below the visible window. Hence the 22pt pill is `.borderless`. And **wrap-up is
+an ordinary `NSWindow`**, not a floating non-activating panel: the reasons to float expire at
+Stop, and more importantly a `.nonactivatingPanel` can be *key while another app is active*, where
+⌘C reaches nothing — key equivalents route through the **active** app's main menu. Wrap-up is
+where a summary gets copied out, so it cannot be that kind of window. Level and
+`collectionBehavior` *are* safe to mutate; `styleMask` is not, which is why this is a third window
+rather than a mode.
+
+Four more rules the panel depends on, none of them enforced by anything:
 
 - `isMovableByWindowBackground` must stay **off**. On, any drag on content moves the window,
   which silently breaks drag-to-select and swallows drags on the pill. Headers and the pill
@@ -234,12 +231,10 @@ Three more rules the panel depends on, none of them enforced by anything:
   *without* `NSApp.activate`. A non-activating panel isn't key until clicked, so otherwise the
   first click only raises it and the second reaches the field — and `@FocusState` cannot focus
   anything in a window that isn't key.
-
-Also `hosting.sizingOptions = []`, or SwiftUI's intrinsic size snaps the window back after every
-resize; and never mutate `styleMask` after init — typing silently stops working. **Window
-metrics generally lose to the hosting view:** `minSize`/`contentMinSize` are set and still
-ignored once it is installed, so the floor is enforced in `windowWillResize` — the one point
-AppKit asks before committing a drag. Level and `collectionBehavior` are safe to mutate.
+- `hosting.sizingOptions = []`, or SwiftUI's intrinsic size snaps the window back after every
+  resize. **Window metrics generally lose to the hosting view:** `minSize`/`contentMinSize` are
+  set and still ignored once it is installed, so the floor is enforced in `windowWillResize` —
+  the one point AppKit asks before committing a drag.
 
 **Notifications must be posted *and* routed.** `osascript -e 'display notification'` posts as
 **Script Editor** — so clicking one opens Script Editor, not Plume. That was the right trade
@@ -255,11 +250,14 @@ it forced the window past the bottom of the screen with no scrollbar (nothing is
 nothing scrolls); missing from the setup window's `Text`s, SwiftUI compressed each to one clipped
 line.
 
-**Test-only path overrides are `@TaskLocal`, not locks.** `Config.withPath` and
-`TemplateStore.withDirectory` exist so tests don't rewrite the developer's real config and
-templates. A lock compiles and is Swift 6-clean but is process-wide, and Swift Testing runs tests
-in parallel — the lock version failed `ConfigTests` immediately, because a concurrent suite read
-another test's override.
+**The three hand-editable stores share one cache and one test hook.** `Config`, `TemplateStore`
+and `VocabularyStore` all sit behind `MTimeCache`, keyed on the *files'* own mtimes — a
+directory's mtime moves only when an entry is added or removed, so a directory-keyed cache would
+ignore the in-place edit that is the whole premise of the folder. Their path overrides
+(`Config.withPath`, `TemplateStore.withDirectory`) are `@TaskLocal`, **not locks**: a lock is
+process-wide, and Swift Testing runs in parallel, so one test's temp path became another suite's
+answer. Both rules are covered by `InjectablePathsTests`; reasoning lives at `Config.pathOverride`
+and in `MTimeCache`.
 
 **`SMAppService.mainApp.status == .notFound` means "never registered", not "no bundle."**
 `.notRegistered` is what the name suggests and not what macOS returns. `register()` from
@@ -281,9 +279,8 @@ until 2026-08-16 (on a failed regenerate, only one reloaded from disk — the ot
 text on screen that `meeting.md` never contained). The shared parts are now `MeetingDetailView`,
 `MeetingDetailModel`'s extension (`runSummarize` / `reloadContent` / `applySpeakerEdit`),
 `MeetingContent` (loading) and `NotesAutosave` (the debounce). What stays per surface: chrome,
-`initialTab` (panel opens on Notes because you are writing, history on Summary because you are
-reading), and `summarizingFinished(session:)` — the panel retires the meeting to history, history
-rebuilds its list.
+`initialTab`, and `summarizingFinished(session:)` — the panel retires the meeting to history,
+history rebuilds its list.
 
 **`SummaryEngine.summarize` returns the session URL, and callers must use it.** Deriving a title
 renames the folder. Both surfaces used to find the new one by matching the `yyyy-MM-dd-HHmm`
@@ -296,11 +293,6 @@ model configured then, while Settings, the readiness caption and `doctor` all re
 one — and the wrong name gets stamped into `meeting.md` as provenance. One client per
 `summarize()`: current on each run, and *fixed* between `stream()` and `unload()`, or a
 mid-generation config change would evict a model Plume never loaded.
-
-**`TemplateStore.all()` caches on the templates' own mtimes, not the directory's.** It is read
-from inside `MeetingDetailView.body`, i.e. once per keystroke. A directory's mtime changes only
-when an entry is added or removed, so a directory-keyed cache would ignore a hand-edited prompt —
-and "editing a template is opening the file" is the whole premise of the folder.
 
 **Swift 6 strict concurrency is on.** `OfflineDiarizerManager` isn't `Sendable` and needs an
 owning actor. Don't reach for `@unchecked Sendable`: use a lock. The three that exist each carry
@@ -338,23 +330,20 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-16, after the session machine-ownership stamp.*
+*Last reviewed against the code: 2026-08-17, after the documentation trim.*
 
-**Update it in the same commit as the change, never "later."** A separate documentation pass
-does not happen, and a silently wrong constraint is worse than a missing one — the next agent
-will trust it.
+**Update it in the same commit as the change, never "later."** A separate documentation pass does
+not happen, and a silently wrong constraint is worse than a missing one — the next agent will
+trust it. Bump the date when you edit; if it is far behind HEAD, spend five minutes checking
+sections 1 and 4 against reality before trusting them.
 
-**The same rule covers README.md, and there it is public.** The README makes claims a stranger can
-check against the app in a minute, and none of them fail to compile when they go stale: the install
-commands, the permissions asked for and why, every config key and its default, the on-disk paths,
-the uninstall list, and the feature list itself. So a change to any of those is a README change in
-the same commit — a new setting, a renamed path, a changed default, a feature added or dropped.
-Three claims it must never be wrong about, because each costs trust rather than time: **what leaves
-the machine** (localhost Ollama, plus the first-run model download, and nothing else), **that audio
-is deleted after transcription**, and **anything named as not yet built** — Ask is listed as
-designed-not-built, and stays listed that way until it ships. What belongs there is what a user
-needs; the reasoning behind a decision stays here or in PROGRESS.md, and the README links rather
-than repeats.
+**The same rule covers README.md, and there it is public.** Every claim in it is checkable against
+the app in a minute, and none of them fail to compile when they go stale: install commands,
+permissions, config keys and defaults, on-disk paths, the uninstall list, the feature list. A
+change to any of those is a README change in the same commit. Three it must never be wrong about,
+because each costs trust rather than time: **what leaves the machine** (localhost Ollama, plus the
+first-run model download, and nothing else), **that audio is deleted after transcription**, and
+**anything named as not yet built** — Ask stays listed as designed-not-built until it ships.
 
 **The test for belonging here** is not length, it's: *would getting this wrong cost more than
 reading it?* Irreversible damage and reversed decisions always qualify. A platform trap qualifies
@@ -362,6 +351,3 @@ while it stays invisible — once a test or an obvious code comment enforces it,
 keep the pointer. Design rationale belongs in PLAN.md; status and dead ends in PROGRESS.md;
 anything derivable from reading the code belongs nowhere. §0 is the exception that proves it:
 the shape *is* derivable, but only by reading a dozen files, and every session needs it.
-
-Bump the date when you edit. If it is far behind HEAD, spend five minutes checking sections 1
-and 4 against reality before trusting them.

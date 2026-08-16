@@ -1,5 +1,4 @@
 import Foundation
-import os.lock
 
 /// Typed view of `~/.config/plume/config.json`.
 ///
@@ -81,11 +80,8 @@ enum Config {
     /// drops the mtime cache on both sides, since two files' modification dates
     /// are not comparable.
     static func withPath<T>(_ url: URL, _ body: () throws -> T) rethrows -> T {
-        // The mtime cache is dropped on both edges: two files' modification
-        // dates are not comparable, so a cache entry from one path would be
-        // served for the other.
-        cache.withLock { $0 = Cache() }
-        defer { cache.withLock { $0 = Cache() } }
+        cache.invalidate()
+        defer { cache.invalidate() }
         return try $pathOverride.withValue(url) { try body() }
     }
 
@@ -195,44 +191,33 @@ enum Config {
 
     // MARK: - Load / store
 
-    /// Cached parse, invalidated by the file's modification date.
-    ///
-    /// Quill re-read and re-parsed on *every* accessor call, including from
-    /// inside an actor — blocking disk I/O on a cooperative-pool thread. Keying
-    /// the cache on mtime keeps the one good property of that approach: a
-    /// hand-edit still takes effect without relaunching.
-    private struct Cache: Sendable {
-        var settings: Settings?
-        var modified: Date?
-    }
-    private static let cache = OSAllocatedUnfairLock(initialState: Cache())
+    /// Cached parse, invalidated by the file's modification date — Quill
+    /// re-read and re-parsed on *every* accessor call, including from inside an
+    /// actor, i.e. blocking disk I/O on a cooperative-pool thread. See
+    /// `MTimeCache` for why all three hand-editable stores cache this way.
+    private static let cache = MTimeCache<Date, Settings>()
 
     /// Current settings, or all-nil defaults when there is no readable config.
     static func current() -> Settings {
-        let modified = (try? FileManager.default.attributesOfItem(atPath: path.path))?[
-            .modificationDate] as? Date
-
-        return cache.withLock { cache in
-            if let modified, cache.modified == modified, let settings = cache.settings {
-                return settings
-            }
-            guard let modified else {
-                cache = Cache(settings: Settings(), modified: nil)
-                return Settings()
-            }
+        cache.value {
+            (try? FileManager.default.attributesOfItem(atPath: path.path))?[.modificationDate]
+                as? Date
+        } compute: {
             guard
                 let data = try? Data(contentsOf: path),
                 let settings = try? JSONDecoder().decode(Settings.self, from: data)
             else {
-                // Reported rather than silently ignored: recordings landing in
-                // an unexpected place is worse than a warning.
-                FileHandle.standardError.write(Data(
-                    "warning: \(path.path) is not valid Plume config — ignoring\n".utf8
-                ))
-                cache = Cache(settings: Settings(), modified: modified)
+                // A missing file is the normal case and says nothing. A file
+                // that exists and doesn't parse is reported rather than
+                // silently ignored: recordings landing in an unexpected place
+                // is worse than a warning.
+                if FileManager.default.fileExists(atPath: path.path) {
+                    FileHandle.standardError.write(Data(
+                        "warning: \(path.path) is not valid Plume config — ignoring\n".utf8
+                    ))
+                }
                 return Settings()
             }
-            cache = Cache(settings: settings, modified: modified)
             return settings
         }
     }
@@ -248,6 +233,6 @@ enum Config {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(settings).write(to: path, options: .atomic)
         // Drop the cache: filesystem mtime resolution can round our write away.
-        cache.withLock { $0 = Cache() }
+        cache.invalidate()
     }
 }

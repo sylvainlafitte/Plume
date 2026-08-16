@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// A summary template: a name and the system prompt that produces it.
 struct SummaryTemplate: Sendable, Equatable {
@@ -34,8 +33,8 @@ enum TemplateStore {
     /// cache on the way in and out: it is keyed on file names, which two
     /// directories share.
     static func withDirectory<T>(_ url: URL, _ body: () throws -> T) rethrows -> T {
-        cache.withLock { $0 = Cache() }
-        defer { cache.withLock { $0 = Cache() } }
+        cache.invalidate()
+        defer { cache.invalidate() }
         return try $directoryOverride.withValue(url) { try body() }
     }
 
@@ -242,23 +241,10 @@ enum TemplateStore {
         return SummaryTemplate(id: id, name: name, prompt: prompt)
     }
 
-    /// Cached listing, invalidated by the templates' own modification dates.
-    ///
-    /// Same shape as `Config.current()`, and for the same reason — but keyed on
-    /// the *files*, not the directory. A directory's mtime changes only when an
-    /// entry is added or removed, so an in-place edit of an existing prompt
-    /// would never invalidate a directory-keyed cache, and this type's whole
-    /// premise is that editing a template is opening the file.
-    ///
-    /// Worth caching because `all()` is a computed property on three view models
-    /// and is read from inside `MeetingDetailView.body` — which re-evaluates on
-    /// every keystroke in the notes editor. Uncached that was a directory
-    /// listing plus four reads and parses per character, on the main thread.
-    private struct Cache: Sendable {
-        var templates: [SummaryTemplate]?
-        var fingerprint: [String: Date]?
-    }
-    private static let cache = OSAllocatedUnfairLock(initialState: Cache())
+    /// Cached listing, keyed on the templates' *own* modification dates rather
+    /// than the directory's — see `MTimeCache` for why that distinction is the
+    /// whole point here, and why this path is hot enough to cache at all.
+    private static let cache = MTimeCache<[String: Date], [SummaryTemplate]>()
 
     /// Names and modification dates in one directory read. Nil when the folder
     /// isn't readable, which simply means "don't cache" — `all()` still answers.
@@ -278,17 +264,7 @@ enum TemplateStore {
 
     /// Every template in the folder, sorted by display name.
     static func all() -> [SummaryTemplate] {
-        if let current = fingerprint(),
-            let hit = cache.withLock({ $0.fingerprint == current ? $0.templates : nil })
-        {
-            return hit
-        }
-
-        let parsed = load()
-        // Fingerprint *after* seeding: `load()` may write missing seed files,
-        // and storing the pre-seed fingerprint would miss on every call.
-        cache.withLock { $0 = Cache(templates: parsed, fingerprint: fingerprint()) }
-        return parsed
+        cache.value(fingerprint: fingerprint, compute: load)
     }
 
     private static func load() -> [SummaryTemplate] {
