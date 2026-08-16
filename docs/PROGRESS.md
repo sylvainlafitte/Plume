@@ -24,9 +24,10 @@ see "The refactor pass" for what was done, what was declined, and the two gaps i
 **Next action:** **the clean-Mac verification**, which is now the only thing standing between
 here and a release, and the only way to test the three paths this machine structurally cannot:
 Gatekeeper on a downloaded bundle, the model download (warm cache here), and a genuine
-first-permission prompt. Then README + LICENSE and the rest of the public-repo checklist.
-Signing and notarization are done; the PLAN.md content question is closed (illustrative, checked
-2026-08-16). The R3 corpus still runs in parallel and still gates Phase 2. Ask stays deliberately
+first-permission prompt. Then the rest of the public-repo checklist: the committed spike bundles,
+and R4's disclosure wording.
+Signing and notarization are done; README and LICENSE landed 2026-08-16; the PLAN.md content
+question is closed (illustrative, checked 2026-08-16). The R3 corpus still runs in parallel and still gates Phase 2. Ask stays deliberately
 after distribution.
 
 *Docs were fully re-verified against the code on 2026-08-16 — AGENTS.md §0–§4 claim by claim.*
@@ -184,8 +185,16 @@ dependency:**
        a "Finish setup…" menu item appears only while something is missing. `TempSweep` covers
        R8. **Still unverifiable here** (warm FluidAudio cache, logged 2026-08-14) — the
        download path itself wants the clean-Mac run.
-5. [ ] **README, LICENSE, public prep.** After 3–4, so the README documents something that
-       actually installs. See the checklist below.
+5. [~] **README, LICENSE, public prep.** *Both written 2026-08-16*, after 3–4 so the README
+       documents something that actually installs. `README.md` opens on the thing that is
+       actually distinctive — notes merged with the transcript, templates deciding the output
+       shape — then covers install, first run, on-disk layout, privacy, every config key,
+       troubleshooting and uninstall. `LICENSE` is MIT carrying both copyright lines plus a fork
+       note, with `LICENSE-quill` retained verbatim beside it. AGENTS.md now carries the rule
+       that keeps the README true: it is updated in the same commit as any user-visible change,
+       and three claims in it must never go stale (what leaves the machine, audio deletion,
+       anything listed as not-yet-built). **Open:** the rest of the checklist below — the spike
+       bundles, and R4's disclosure wording.
 6. [~] **Phase 1–6 leftovers.** *Done 2026-08-16:* injectable `Config.path` /
        `TemplateStore.directory` (as **task-locals**, not locks — see the decision below) and
        the two regression tests they blocked; `LoginItem` (`SMAppService.mainApp`) and the
@@ -210,15 +219,20 @@ dependency:**
       the evidence that string equality cannot work, they name no person and disclose nothing,
       and paraphrasing them would destroy the point they prove. **Re-check this if any future
       decision quotes a real meeting** — that is the line, not the fact of quoting ASR.
-- [ ] **LICENSE: MIT, retaining quill's copyright** (`LICENSE-quill` is already here). Keeping
-      the upstream notice is an obligation of the licence, not a courtesy. Add our own line and
-      a fork note.
+- [x] **LICENSE: MIT, retaining quill's copyright — done 2026-08-16.** `LICENSE` carries both
+      copyright lines (ours and Andrew Jones's) over the standard MIT text, then a fork note
+      naming the upstream repo; `LICENSE-quill` stays beside it, verbatim and untouched. Keeping
+      the upstream notice is an obligation of the licence, not a courtesy — which is why the
+      copyright line is in the main file rather than only in the retained one.
 - [ ] Settle **R4's recording-disclosure wording** — a real question in two-party-consent
       jurisdictions, and it should exist before strangers use this.
-- [ ] README must state: what it is, the install command, the dependencies and their disk cost,
-      what each permission is for, **what leaves the machine (nothing but localhost Ollama)**,
-      that audio is deleted after transcription, where data lives, and what uninstall does and
-      does not remove.
+- [x] **README — written 2026-08-16.** States what it is, install (release zip and
+      `build-app.sh`), the dependencies and their disk cost, what each permission is for and why
+      the capture check exists, **what leaves the machine** (localhost Ollama, plus the one-time
+      model download from Hugging Face), that audio is deleted after transcription, where data
+      lives, and what uninstall does and does not remove (`~/Meetings` deliberately stays).
+      Two links are ahead of reality until the repo is public: the Releases URL needs a tagged
+      release, and the install section assumes the notarized zip is attached to it.
 
 ### Also missing, raised 2026-08-16
 

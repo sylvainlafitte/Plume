@@ -13,6 +13,7 @@ consulted, not read front to back.
 | | What it is | Read it when |
 |---|---|---|
 | **AGENTS.md** (here) | How Plume works now, and what will cost you if you get it wrong | Always — it is loaded into every session |
+| **[README.md](README.md)** | The only document a user reads: what Plume is, how to install it, what it does, what leaves the machine | You change anything a user sees, installs or configures — and then update it in the same commit |
 | **[docs/PROGRESS.md](docs/PROGRESS.md)** | The log: current state, next action, decisions with their *why*, and dead ends | Starting a session, or before retrying something that smells previously-tried |
 | **[docs/PLAN.md](docs/PLAN.md)** | Pre-implementation design record. Source of the `F*`/`R*` numbers cited elsewhere | A reference points there. Not orientation material — most of it is now history |
 | **[docs/archive/](docs/archive/)** | Closed work, kept for its reasoning | Almost never |
@@ -321,6 +322,18 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 **Update it in the same commit as the change, never "later."** A separate documentation pass
 does not happen, and a silently wrong constraint is worse than a missing one — the next agent
 will trust it.
+
+**The same rule covers README.md, and there it is public.** The README makes claims a stranger can
+check against the app in a minute, and none of them fail to compile when they go stale: the install
+commands, the permissions asked for and why, every config key and its default, the on-disk paths,
+the uninstall list, and the feature list itself. So a change to any of those is a README change in
+the same commit — a new setting, a renamed path, a changed default, a feature added or dropped.
+Three claims it must never be wrong about, because each costs trust rather than time: **what leaves
+the machine** (localhost Ollama, plus the first-run model download, and nothing else), **that audio
+is deleted after transcription**, and **anything named as not yet built** — Ask is listed as
+designed-not-built, and stays listed that way until it ships. What belongs there is what a user
+needs; the reasoning behind a decision stays here or in PROGRESS.md, and the README links rather
+than repeats.
 
 **The test for belonging here** is not length, it's: *would getting this wrong cost more than
 reading it?* Irreversible damage and reversed decisions always qualify. A platform trap qualifies
