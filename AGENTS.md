@@ -116,6 +116,7 @@ an earlier design. **Don't "fix" them without asking.**
 | No UI for the vocabulary file, and it cannot fix the transcript | Both deliberate. `Vocabulary.md` is a markdown file beside `Templates/` — same premise, edited in your own editor. And it is read at *summary* time: Parakeet exposes no biasing hook (FluidAudio's `vocabulary` is the model's own token table), so a misheard term is already in the transcript, whose audio is gone. The glossary makes the **summary** spell it right; rewriting the transcript from it was rejected as invariant-1 territory. |
 | `transcription.enabled` has no toggle in Settings | Off, a recording rests at `recorded` forever — no transcript, no summary, no `meeting.md`. A switch that silently turns the whole app off doesn't belong beside ordinary preferences. The config key still works for the CLI. |
 | No Dock icon, and windows aren't in ⌘-Tab | Accessory apps are absent from ⌘-Tab **by rule**, not by window configuration — the only lever is `NSApp.setActivationPolicy(.regular)`, which brings a Dock icon and a real menu bar. Declined 2026-08-15. Windows are reached from the menu bar. |
+| `state.json` carries a `machine` id, and `resumePending` skips foreign sessions | For the case where the meetings root is a *synced* folder shared by two Macs. Looks like dead code on a single Mac — `isOwnedByThisMachine` is always true there, including for pre-stamp sessions, which is why it's `String?`. Without it the second Mac adopts the first's `recorded` session and transcribes audio that may still be downloading, then deletes it (invariant 6). Only the unattended path is guarded; recording enqueues its own session directly. The id lives beside `config.json`, never in the meetings root — it must not sync. |
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
 
 Genuinely **not built yet** (different thing): `SMAppService` login item, a Carbon global
@@ -256,7 +257,7 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-16, after the panel edge-awareness change.*
+*Last reviewed against the code: 2026-08-16, after the session machine-ownership stamp.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass
 does not happen, and a silently wrong constraint is worse than a missing one — the next agent

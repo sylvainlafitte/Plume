@@ -57,7 +57,12 @@ actor TranscriptionCoordinator {
                 // Only transcription is automatic. A session awaiting its
                 // summary is resting, not stuck — Phase 4/5 drive that on a
                 // human trigger.
-                return state.stage == .recorded && state.isReadyForWork
+                // `isOwnedByThisMachine` matters only when the root is a synced
+                // folder: adopting another Mac's session would transcribe audio
+                // that may still be downloading, and transcription deletes it.
+                return state.stage == .recorded
+                    && state.isReadyForWork
+                    && state.isOwnedByThisMachine
             }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         for dir in pending where !queue.contains(dir) {

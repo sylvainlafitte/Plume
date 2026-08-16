@@ -52,10 +52,31 @@ struct SessionState: Codable, Equatable, Sendable {
     var blocker: Blocker?
     var updated: Date
 
-    init(stage: Stage = .recorded, blocker: Blocker? = nil, updated: Date = Date()) {
+    /// The Mac that recorded this session, when known. Only meaningful if the
+    /// meetings root is a synced folder — see `isOwnedByThisMachine`. Optional
+    /// because sessions recorded before this existed have no stamp.
+    var machine: String?
+
+    init(
+        stage: Stage = .recorded,
+        blocker: Blocker? = nil,
+        updated: Date = Date(),
+        machine: String? = MachineID.current
+    ) {
         self.stage = stage
         self.blocker = blocker
         self.updated = updated
+        self.machine = machine
+    }
+
+    /// Whether this machine may do unattended work on the session.
+    ///
+    /// Unstamped sessions pass: they predate the stamp, and on the overwhelmingly
+    /// common single-Mac setup there is nothing to protect them from. A stamp
+    /// naming *another* Mac fails — that session's audio belongs to a machine
+    /// that may still be uploading it, and transcription deletes the audio.
+    var isOwnedByThisMachine: Bool {
+        machine == nil || machine == MachineID.current
     }
 
     /// Work remains and nothing is standing in the way.

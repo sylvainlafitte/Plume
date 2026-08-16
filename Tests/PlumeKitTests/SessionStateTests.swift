@@ -24,6 +24,28 @@ struct SessionStateTests {
         #expect(loaded?.blocker == nil)
     }
 
+    @Test("only this machine's sessions are adopted for unattended work")
+    func machineOwnership() {
+        // A shared meetings root (iCloud) would otherwise let a second Mac
+        // transcribe audio the first Mac is still uploading — and transcription
+        // deletes the audio.
+        #expect(SessionState().isOwnedByThisMachine)
+        #expect(SessionState(machine: MachineID.current).isOwnedByThisMachine)
+        #expect(!SessionState(machine: "some-other-mac").isOwnedByThisMachine)
+        // Sessions recorded before the stamp existed must not become stranded.
+        #expect(SessionState(machine: nil).isOwnedByThisMachine)
+    }
+
+    @Test("advancing a session keeps its recording machine")
+    func advancePreservesMachine() throws {
+        let session = tempSession()
+        defer { try? FileManager.default.removeItem(at: session) }
+
+        try SessionState(machine: "some-other-mac").save(to: session)
+        try SessionState.advance(session, to: .transcribed)
+        #expect(SessionState.load(from: session)?.machine == "some-other-mac")
+    }
+
     @Test("a session with no state file reads as nil, not as an error")
     func missingStateIsNil() {
         #expect(SessionState.load(from: tempSession()) == nil)
