@@ -13,17 +13,18 @@ Forked from [digimata/quill](https://github.com/digimata/quill) (MIT).
 |---|---|---|
 | **AGENTS.md** (here) | How Plume works now, and what will cost you if you get it wrong | Always — it is loaded into every session |
 | **[README.md](README.md)** | The only document a user reads: what Plume is, how to install it, what it does, what leaves the machine | You change anything a user sees, installs or configures — and then update it in the same commit |
-| **[docs/PROGRESS.md](docs/PROGRESS.md)** | The log: current state, next action, decisions with their *why*, and dead ends | Starting a session, or before retrying something that smells previously-tried |
-| **[docs/PLAN.md](docs/PLAN.md)** | Pre-implementation design record, kept as the registry for the `F*`/`R*` numbers cited from code comments | A reference points there |
+| **[docs/DECISIONS.md](docs/DECISIONS.md)** | Dead ends with their evidence, and calls already taken for work not yet built | Before retrying something that smells previously-tried, or starting Ask |
+| **[spikes/](spikes/)** | Three measured results (TCC identity, panel window config, Ollama `num_ctx` cost) | A comment cites one and you want the numbers |
 
-**Precedence:** the **code** wins over this file (if they disagree, fix the file in the same
-commit); this file wins over PLAN.md, which is *why*, not *what is*.
+**Precedence:** the **code** wins over this file — if they disagree, fix the file in the same
+commit.
 
 ## 0. How Plume is put together
 
-One SwiftPM package. `Sources/PlumeKit/` holds everything (`Audio`, `Transcription`, `Meeting`,
-`Summary`, `UI`, plus `App`/`AppState`/`Config`/`Doctor`/`Log`/`LoginItem`/`Notify`/`MTimeCache`
-at the root); `Sources/plume/main.swift` is a five-line shim so the test target can
+One SwiftPM package. `Sources/PlumeKit/` holds everything: the `Audio`, `Transcription`,
+`Meeting`, `Summary` and `UI` folders, plus eleven files at the root — `App`, `AppState`,
+`AudioProbe`, `Config`, `Doctor`, `Log`, `LoginItem`, `MTimeCache`, `Notify`, `RecordingSession`,
+`UpdateCheck`. `Sources/plume/main.swift` is a five-line shim so the test target can
 `@testable import` without depending on an `@main` target.
 
 ```
@@ -57,19 +58,23 @@ SummaryEngine (actor)
 
 ```
 applicationDidFinishLaunching
- ├─ TempSweep.run            reclaim a crashed diarization's scratch files (R8)
+ ├─ AppController()          ← everything below happens inside its init, first of all
+ │   ├─ menuBar callbacks
+ │   ├─ GlobalHotkey.register    ⌥⌘R; logs and continues if another app owns it
+ │   ├─ NotificationRouter       set BEFORE anything posts, or a click has nowhere to go
+ │   ├─ CameraWatch.startIfEnabled    opt-in; usually does nothing
+ │   ├─ UpdateWatch.startIfEnabled    on by default; first check is 20s after launch
+ │   ├─ observeState()            re-arms itself per change; drives the menu bar
+ │   └─ transcription.resumePending   the queue is just a rescan of state.json
  ├─ DoctorReport.run         no probes — they cost ~2s and play a tone
- ├─ SetupWindowController    shown only if the models are missing
- ├─ GlobalHotkey.register    ⌥⌘R; logs and continues if another app owns it
- ├─ NotificationRouter       set BEFORE anything posts, or a click has nowhere to go
- ├─ CameraWatch.startIfEnabled   opt-in; usually does nothing
- └─ transcription.resumePending  the queue is just a rescan of state.json
+ ├─ TempSweep.run            reclaim a crashed diarization's scratch files
+ └─ SetupWindowController    shown only if the models are missing
 ```
 
 **Windows, and who owns them.** `MeetingPanelController` → three `NSWindow`s (pill, recording,
 wrap-up); `HistoryWindowController` → Meetings; `SettingsWindowController` → Settings;
-`SetupWindowController` → Setup & Checks. Everything readiness-related renders `DoctorReport`:
-that window and `plume doctor` are two renderers of one engine (§2). `MeetingPanelController` and
+`SetupWindowController` → Setup & Checks. Everything readiness-related renders `DoctorReport`,
+which has exactly one full renderer — that window (§2). `MeetingPanelController` and
 `HistoryModel` are **two surfaces over one object** — both conform to `MeetingDetailModel` and
 share the detail view *and* the summarize path (§4).
 
@@ -123,7 +128,7 @@ an earlier design. **Don't "fix" them without asking.**
 | Looks like | Actually |
 |---|---|
 | Call detection never starts a recording | It notifies, and the notification's button starts one — the click is the consent. Off by default (`call_detection`), camera-triggered, and blind to audio-only calls on purpose: a false positive that recorded a meeting is the only unrecoverable failure this feature could have. |
-| Setup and diagnostics are one window | Merged 2026-08-16. They asked the same six `DoctorReport` checks, and the split had already produced two readings of one probe. `DoctorReport` is the engine; the window and `plume doctor` are both renderers. Probes stay behind a button (~2 s, plays a tone), and the window auto-opens only when the models are missing. The one thing that differs between its two entries is a closing CTA shown **only** on the launch-opened instance — from Settings it is a diagnostics window, where "you can close this now" says nothing. It is a parameter of the showing, not of the window, and it is guidance rather than a step: still a window, not a wizard. |
+| Setup and diagnostics are one window | Merged 2026-08-16. They asked the same six `DoctorReport` checks, and the split had already produced two readings of one probe. `DoctorReport` is the engine and the window is its renderer. Probes stay behind a button (~2 s, plays a tone), and the window auto-opens only when the models are missing. The one thing that differs between its two entries is a closing CTA shown **only** on the launch-opened instance — from Settings it is a diagnostics window, where "you can close this now" says nothing. It is a parameter of the showing, not of the window, and it is guidance rather than a step: still a window, not a wizard. |
 | No transcript view in the app | Deliberate. The transcript is summarizer input and text in `meeting.md`. Speaker rows show sample lines so you can identify a voice without one. |
 | Notes have no automatic timestamps | Reversed in Phase 5: stamps went stale whenever a line was edited, and most notes aren't anchored to a moment. ⌘T inserts one on purpose. |
 | Summarizing is manual | The wrap-up gate is the point — you add final thoughts *then* summarize. A meeting resting at `transcribed` forever is normal. |
@@ -134,48 +139,44 @@ an earlier design. **Don't "fix" them without asking.**
 | A recording starts as the pill, and both expanded modes share one resizable frame | Reversed together. Two fixed sizes (340×300 recording, 430×580 wrap-up) assumed a live call wanted a smaller footprint — moot once the panel is only on screen when you deliberately open it. Collapse and expand must **pivot on the same corner**, or a round-trip drifts the pill by the difference in size. Top-right is only the *preferred* corner: `PanelAnchor` flips an axis when expanding from it would run off the screen, and the chosen corner is stored until the next expand — re-deriving it at collapse time is what makes the pill wander (covered by `PanelAnchorTests`). |
 | Two echo settings, not one | Different points in the pipeline and not interchangeable: `transcript_echo_filter` removes duplicates from the finished transcript (safe, default on), `mic_voice_processing` stops the echo reaching the recording but makes macOS duck all other audio for the whole meeting. Presented together, weaker one first. |
 | No UI for the vocabulary file, and it cannot fix the transcript | Both deliberate. `Vocabulary.md` is a markdown file beside `Templates/` — same premise, edited in your own editor. And it is read at *summary* time: Parakeet exposes no biasing hook (FluidAudio's `vocabulary` is the model's own token table), so a misheard term is already in the transcript, whose audio is gone. The glossary makes the **summary** spell it right; rewriting the transcript from it was rejected as invariant-1 territory. |
-| `transcription.enabled` has no toggle in Settings | Off, a recording rests at `recorded` forever — no transcript, no summary, no `meeting.md`. A switch that silently turns the whole app off doesn't belong beside ordinary preferences. The config key still works for the CLI. |
 | No Dock icon, and windows aren't in ⌘-Tab | Accessory apps are absent from ⌘-Tab **by rule**, not by window configuration — the only lever is `NSApp.setActivationPolicy(.regular)`, which brings a Dock icon and a real menu bar. Declined 2026-08-15. Windows are reached from the menu bar. |
 | `state.json` carries a `machine` id, and `resumePending` skips foreign sessions | For the case where the meetings root is a *synced* folder shared by two Macs. Looks like dead code on a single Mac — `isOwnedByThisMachine` is always true there, including for pre-stamp sessions, which is why it's `String?`. Without it the second Mac adopts the first's `recorded` session and transcribes audio that may still be downloading, then deletes it (invariant 6). Only the unattended path is guarded; recording enqueues its own session directly. The id lives beside `config.json`, never in the meetings root — it must not sync. |
-| Nothing in the app helps you disclose the recording | R4's remedy is the **visible indicator** and nothing more. A Disclosure button that copied a suggested line was built and removed the same day: consent law is jurisdictional and situational, so a canned sentence in a menubar app is either redundant for someone who knows their obligations or falsely reassuring for someone who doesn't — and the second failure is the one that matters. Working out how to get consent is the user's, not Plume's. |
-| The update check never updates anything, and says nothing when it fails | It sets one field; the menu bar shows a line **only** while an update exists, and clicking it opens the release page. No appcast, no EdDSA key, no self-replacing bundle — `brew upgrade` and a drag to /Applications already work. Unreachable, rate-limited and up-to-date are one answer (nil) on purpose: a failed check is not a problem the user has, and an unparseable tag must mean silence, never a permanent un-dismissable "update available". It is also the **only** non-localhost request Plume makes besides the first-run model download, so `update_check` gates the *request*, not the result. The one bypass is Settings' **Check now** (`honoringSetting: false`), because the press is the request — the same consent-by-click rule as the call-detection notification, and without it the button would answer "up to date" having asked nobody. Touching any of this puts the README's what-leaves-the-machine claim in scope. |
+| Nothing in the app helps you disclose the recording | The remedy is the **visible indicator** and nothing more. A Disclosure button that copied a suggested line was built and removed the same day: consent law is jurisdictional and situational, so a canned sentence in a menubar app is either redundant for someone who knows their obligations or falsely reassuring for someone who doesn't — and the second failure is the one that matters. Working out how to get consent is the user's, not Plume's. |
+| The update check never updates anything, and says nothing when it fails | It sets one field; the menu bar shows a line **only** while an update exists, and clicking it opens the release page — no appcast, no EdDSA key, no self-replacing bundle. Unreachable, rate-limited and up-to-date collapse to one answer (nil) on purpose, and **anything unparseable must mean silence** — a suffixed tag (`0.2.0-rc.1`) is refused rather than ranked, because the failure mode of guessing is a permanent un-dismissable "update available". It is the **only** non-localhost request Plume makes besides the first-run model download, so `update_check` gates the *request*: off means none is constructed, and there is deliberately no "check anyway" button to weaken that. Touching any of this puts the README's what-leaves-the-machine claim in scope. |
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Confirmed on a real 1:1 2026-08-17 — one remote speaker, no over-split. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
 | The recording panel's participant menu writes nothing to config | Deliberate, and it is what makes the count revert on its own. The override goes into that session's `meta.json` and nowhere else, so the *next* meeting reads `Config` because its folder has no override — there is no reset logic, no expiry and no sticky state, because there is nowhere for the value to persist. Absent key = pre-feature session = default-was-fine, correctly one case. The window it is editable in is real, not cosmetic: `stopSession` enqueues transcription immediately, so the cap is read at Stop — which is also why the control is on the recording panel and **not** in wrap-up, where it would silently do nothing. |
 
-Genuinely **not built yet** (different thing): Phase 7 Ask — now scoped as its own **global**
-surface with the per-meeting tab as the N=1 case, not a row and not only a tab (PROGRESS.md,
-"Ask — four decisions to take before writing code").
+Genuinely **not built yet** (different thing): Ask — scoped as its own **global** surface with
+the per-meeting tab as the N=1 case, not a row and not only a tab. Its four open calls are already
+taken in [docs/DECISIONS.md](docs/DECISIONS.md).
 
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 185 tests
+swift build && swift test                      # library + 187 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
 ./build-app.sh release notarize                # release: notarize, staple, dist/Plume-<v>.zip
-./release-cask.sh                              # after publishing: hash the asset, update the cask
-./.build/debug/plume doctor                    # checks — but see below
 ./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
 ./.build/debug/plume summarize <session-dir>   # dev: summarize in place
-/Applications/Plume.app/Contents/MacOS/plume loginitem [register|unregister]
 ```
 
-The last one only means anything from inside the bundle: `SMAppService` keys on the *calling*
-app, so a bare binary always reports `notFound`. Runtime log: `~/Library/Logs/Plume/plume.log`
-(rotates once at 1 MB); per-session transcription logs stay in `.plume/transcribe.log`.
+**Those two are the whole CLI, and readiness checks must not join them.** Both work on a file you
+already have, with no TCC involved. A capture check run from a terminal is attributed to the
+*shell*, so its answer says nothing about Plume.app in either direction — Setup & Checks is the
+only honest surface for it. Runtime log: `~/Library/Logs/Plume/plume.log` (rotates once at 1 MB);
+per-session transcription logs stay in `.plume/transcribe.log`.
 
-**The Homebrew cask lives in two places and only one of them is Homebrew's.** `Casks/plume.rb` here
-is the source of truth; a tap must be a repo named `homebrew-*`, so `release-cask.sh` recomputes the
-sha256 **from the asset downloaded back from the release** and copies the file into
-`sylvainlafitte/homebrew-tap`. Hashing the local `dist/` zip would reintroduce the stale-artifact
-failure with a worse symptom: a checksum mismatch on a stranger's machine reads as tampering. Stanza
-order in the cask is enforced by `brew style`, and `depends_on macos: :sequoia` is the *minimum*
-form — the `">= :sequoia"` spelling is deprecated.
+**Releasing is: `./build-app.sh release notarize`, then attach `dist/Plume-<v>.zip` to a GitHub
+release.** No Homebrew cask, no tap — a second repo and a checksum ritual to save a drag-and-drop.
+**Verify the zip you actually published**, not the copy in `/Applications` — `notarize` stages in
+`/tmp` and never installs, so `spctl` on the installed bundle proves nothing about what a stranger
+downloads.
 
-Two things Homebrew 6 does that the install instructions have to survive, both found by installing
-it rather than reading about it: a third-party tap is **untrusted** until `brew trust` (an explicit
-`brew install --cask <tap>/<cask>` trusts it and records that in `~/.homebrew/trust.json`, but a bare
-`brew info` on the untrusted tap refuses to load the cask at all), and it **refuses to install over
-an existing `/Applications/Plume.app`** — which every hand-installed user has.
+**The Developer ID private key is a live liability.** `Developer ID Application: SYLVAIN J R
+LAFITTE (324ZRWQHHV)`, exported to `.p12` and stored 2026-08-16. That backup is what stands between
+a lost keychain and re-signing every future release with a *different* certificate — which resets
+TCC permissions for everyone who installed the previous one. Developer ID certs are also capped at
+5 per team. The notarization team id (324ZRWQHHV) is **not** the development cert's (99VBSLFB4T).
 
 **CI (`.github/workflows/ci.yml`) runs only what a clean runner can prove**: `swift test` plus a
 debug `build-app.sh` (ad-hoc signed, since there is no certificate there). Everything involving
@@ -262,7 +263,7 @@ Four more rules the panel depends on, none of them enforced by anything:
 **Notifications must be posted *and* routed.** `osascript -e 'display notification'` posts as
 **Script Editor** — so clicking one opens Script Editor, not Plume. That was the right trade
 before the app had a bundle; now `Notify` uses `UNUserNotificationCenter`, keeping osascript only
-for the bundle-less CLI. And the API alone is not enough: with no delegate macOS merely
+for the bundle-less dev subcommands. And the API alone is not enough: with no delegate macOS merely
 *activates* the app, which for an accessory app means fronting whatever window exists — a
 "you aren't recording" reminder opened **Settings**. `NotificationRouter` sets the delegate and
 registers the category *before* anything can post.
@@ -312,7 +313,7 @@ with a `-2` suffix and `renameFolder` drops it — so a surface could silently f
 meeting. Back-to-back calls are a designed-for case, not an edge one.
 
 **`SummaryEngine` holds no `OllamaClient`.** It is built at launch, so a stored client pins the
-model configured then, while Settings, the readiness caption and `doctor` all report the current
+model configured then, while Settings and the readiness caption both report the current
 one — and the wrong name gets stamped into `meeting.md` as provenance. One client per
 `summarize()`: current on each run, and *fixed* between `stream()` and `unload()`, or a
 mid-generation config change would evict a model Plume never loaded.
@@ -334,7 +335,8 @@ this build misread a newer file** — adding a key that older builds ignore does
 
 ## 5. Working habits
 
-`spikes/` is committed on purpose — each has a RESULTS.md and re-runs. Layout is in §0.
+`spikes/` keeps **results only** — the throwaway projects were deleted once each finding had
+graduated into shipping code. Layout is in §0.
 
 `upstream` points at digimata/quill; we cherry-pick from its open PRs and **attribute them in
 the commit message**. Upstream merges almost nothing, so don't expect to pull. Note the PRs are
@@ -346,14 +348,20 @@ embarrassing for anything that writes: always spell out `--repo sylvainlafitte/P
 `gh release`, `gh issue` and `gh pr`.
 
 Match Quill's voice — small files, comments explaining *why* a non-obvious thing is done. No new
-dependencies without a note in PROGRESS.md saying what they replaced.
+dependencies without a comment at the point of use saying what they replaced.
+
+**This repo is deliberately under-scaffolded for its size**, and a round of removals on
+2026-08-17 made it more so. Distribution channels, running logs, plan registries and kill switches
+each serve a stranger, a future version or a second maintainer — none of which this project has.
+**Before adding machinery, name the person it is for.**
 
 **When a bug survives one plausible fix, stop guessing and measure.** Three "fixes" went into a
 clipped panel before one diagnostic printed the geometry and found it in seconds.
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-17, after the per-meeting participant count.*
+*Last reviewed against the code: 2026-08-17, after the trim (cask, plan/progress docs, CLI
+checks, `on_stop`, `transcription.enabled`, update-check "Check now").*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass does
 not happen, and a silently wrong constraint is worse than a missing one — the next agent will
@@ -364,13 +372,14 @@ sections 1 and 4 against reality before trusting them.
 the app in a minute, and none of them fail to compile when they go stale: install commands,
 permissions, config keys and defaults, on-disk paths, the uninstall list, the feature list. A
 change to any of those is a README change in the same commit. Three it must never be wrong about,
-because each costs trust rather than time: **what leaves the machine** (localhost Ollama, plus the
-first-run model download, and nothing else), **that audio is deleted after transcription**, and
-**anything named as not yet built** — Ask stays listed as designed-not-built until it ships.
+because each costs trust rather than time: **what leaves the machine** (localhost Ollama, the
+first-run model download, the daily release check, and nothing else), **that audio is deleted
+after transcription**, and **anything named as not yet built** — Ask stays listed as
+designed-not-built until it ships.
 
 **The test for belonging here** is not length, it's: *would getting this wrong cost more than
 reading it?* Irreversible damage and reversed decisions always qualify. A platform trap qualifies
 while it stays invisible — once a test or an obvious code comment enforces it, cut it here and
-keep the pointer. Design rationale belongs in PLAN.md; status and dead ends in PROGRESS.md;
-anything derivable from reading the code belongs nowhere. §0 is the exception that proves it:
-the shape *is* derivable, but only by reading a dozen files, and every session needs it.
+keep the pointer. Dead ends belong in DECISIONS.md; anything derivable from reading the code
+belongs nowhere. §0 is the exception that proves it: the shape *is* derivable, but only by reading
+a dozen files, and every session needs it.

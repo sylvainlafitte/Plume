@@ -15,7 +15,7 @@ struct AttributedSegment: Sendable, Equatable {
 /// here: `ParakeetEngine` groups up to 60 words per segment, so a segment
 /// routinely spans a speaker change and would smear two turns into one. So
 /// speakers are assigned **per word**, then segments are rebuilt on speaker
-/// boundaries. See docs/PLAN.md F6.
+/// boundaries.
 enum SpeakerAttribution {
 
     /// Minimum share of a word's duration that must overlap a diarized turn

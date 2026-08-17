@@ -32,13 +32,8 @@ actor TranscriptionCoordinator {
         statusHandler = handler
     }
 
-    /// Queue a finished session. With transcription disabled in config, the
-    /// on_stop hook still fires — it just gets an untranscribed folder.
+    /// Queue a finished session.
     func enqueue(_ sessionDir: URL) {
-        guard Config.transcriptionEnabled() else {
-            runHook(for: sessionDir)
-            return
-        }
         queue.append(sessionDir)
         drainIfIdle()
     }
@@ -50,7 +45,6 @@ actor TranscriptionCoordinator {
     /// "which stage did we reach" is the only sound question. Folder names sort
     /// chronologically, so oldest-first is a name sort.
     func resumePending(root: URL) {
-        guard Config.transcriptionEnabled() else { return }
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: root, includingPropertiesForKeys: nil
         ) else { return }
@@ -96,7 +90,6 @@ actor TranscriptionCoordinator {
             do {
                 try await transcribe(dir)
                 try? SessionState.advance(dir, to: .transcribed)
-                runHook(for: dir)
             } catch {
                 log(dir, "transcription failed: \(error)")
                 // Recorded as a blocker so the failure is durable and visible,
@@ -264,7 +257,7 @@ actor TranscriptionCoordinator {
 
     /// Audio is deleted as soon as the transcript is durably written — a decided
     /// requirement, not an optimisation. There is no re-run: tune against the
-    /// held-aside corpus, never against a real meeting (docs/PLAN.md R3).
+    /// held-aside corpus, never against a real meeting.
     private func deleteAudio(in dir: URL, tracks: [String]) {
         let work = SessionState.directory(in: dir)
         for track in tracks {
@@ -296,7 +289,7 @@ actor TranscriptionCoordinator {
     /// Lazily loaded alongside the ASR engine, and released on the same drain,
     /// so an idle Plume holds neither set of weights. The diarizer models are
     /// small (~21 MB) next to Parakeet's ~464 MB, but the lifecycle should be
-    /// uniform — and at 16 GB the summarizer needs the room (docs/PLAN.md R5).
+    /// uniform — and at 16 GB the summarizer needs the room.
     /// - Parameter maxSpeakers: this session's cap. The cached instance is
     ///   rebuilt when it differs, because the cap is baked into the config at
     ///   construction: reusing a warm diarizer across two back-to-back meetings
@@ -316,21 +309,6 @@ actor TranscriptionCoordinator {
         self.diarizer = diarizer
         self.diarizerMaxSpeakers = maxSpeakers
         return diarizer
-    }
-
-    /// Fires the configured on_stop shell command with the session directory
-    /// as its sole argument, after the transcript exists (or immediately after
-    /// recording when transcription is disabled).
-    private func runHook(for dir: URL) {
-        guard let cmd = Config.onStop() else { return }
-        let task = Process()
-        task.launchPath = "/bin/sh"
-        task.arguments = ["-c", "\(cmd) \"$0\"", dir.path]
-        do {
-            try task.run()
-        } catch {
-            log(dir, "on_stop hook failed to launch: \(error)")
-        }
     }
 
     private func log(_ dir: URL, _ message: String) {

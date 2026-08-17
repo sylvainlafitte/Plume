@@ -11,11 +11,11 @@ import SwiftUI
 /// `AudioProbe.Level` — which is the drift AGENTS.md §4 records for the panel and
 /// the history window, caught a day in rather than a phase later.
 ///
-/// `DoctorReport` stays the single engine; this is a renderer, and so is
-/// `plume doctor` on a terminal. What the window adds is *agency*: a check that
-/// fails gets the button that fixes it, instead of a sentence describing what to
-/// type. It is also why the alert is gone — an alert cannot download a model or
-/// ask for a permission.
+/// `DoctorReport` stays the single engine and this is its only full renderer —
+/// launch prints the same checks to the log when one hard-fails. What the window
+/// adds is *agency*: a check that fails gets the button that fixes it, instead of
+/// a sentence describing what to type. It is also why the alert is gone — an
+/// alert cannot download a model or ask for a permission.
 ///
 /// It is a **window, not a wizard**: nothing here is a step you complete in
 /// order, and none of it blocks recording — a meeting with no models still
@@ -189,9 +189,9 @@ struct SetupView: View {
         }
     }
 
-    /// A passing check shows its measurement: `doctor` reports the captured
+    /// A passing check shows its measurement: the report gives the captured
     /// level rather than a bare "ok" precisely because every other signal here
-    /// can lie, and that reasoning survives the move to a window.
+    /// can lie.
     private func detail(for check: Check) -> String? {
         switch check.status {
         case .ok:

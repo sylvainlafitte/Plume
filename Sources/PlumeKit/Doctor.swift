@@ -18,8 +18,8 @@ struct Check {
 
 enum DoctorReport {
     /// `probeAudio` runs the empirical capture tests. They take ~2s and play a
-    /// short tone, so startup skips them; `doctor` and the settings window run
-    /// them deliberately.
+    /// short tone, so startup skips them; the Setup & Checks window runs them
+    /// deliberately, on a button press.
     static func run(recordingsRoot: URL, probeAudio: Bool = false) -> [Check] {
         // The level probe runs *before* the permission check, and the permission
         // check reads its result. Two reasons, in order of importance:
@@ -120,7 +120,7 @@ enum DoctorReport {
         guard probe else {
             return Check(
                 name: "system audio",
-                status: .warn("not probed — pass `doctor` from the app to test capture for real"),
+                status: .warn("not probed — run the capture check to test this for real"),
                 remediation: nil
             )
         }
@@ -149,7 +149,7 @@ enum DoctorReport {
 
     /// A mic can be authorised, live, and still too quiet to transcribe well.
     /// Measured 2026-08-14: input volume 29/100 put speech at −31 dBFS. Audio is
-    /// deleted after transcription, so a quiet meeting cannot be redone (R14b).
+    /// deleted after transcription, so a quiet meeting cannot be redone.
     static func checkMicLevel(probe: Bool) -> Check {
         guard probe else {
             return Check(name: "mic level", status: .warn("not probed"), remediation: nil)
@@ -205,19 +205,13 @@ enum DoctorReport {
     /// Never discover a missing model after an important meeting: report
     /// whether the parakeet models are already in FluidAudio's cache.
     static func checkTranscription() -> Check {
-        guard Config.transcriptionEnabled() else {
-            return Check(
-                name: "transcription",
-                status: .warn("disabled in config"),
-                remediation: nil
-            )
-        }
         guard !ModelSetup.transcriptionReady else {
             return Check(name: "transcription", status: .ok, remediation: nil)
         }
         // Deliberately no longer says "downloads automatically on first
-        // transcription": it does, but that is the failure R7 exists to remove —
-        // a silent ~700 MB fetch after a real meeting, with nothing on screen.
+        // transcription": it does, but that is exactly the failure the setup
+        // window exists to remove — a silent ~700 MB fetch after a real
+        // meeting, with nothing on screen.
         return Check(
             name: "transcription",
             status: .warn("on-device models not downloaded (~\(ModelSetup.approximateDownloadMB) MB)"),

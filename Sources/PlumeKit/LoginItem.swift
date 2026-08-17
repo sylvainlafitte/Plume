@@ -32,8 +32,9 @@ enum LoginItem {
     /// name suggests but not what this OS returns — and `register()` from that
     /// state succeeds and moves it straight to `.enabled`. So `.notFound` is
     /// mapped to `disabled`, i.e. an offer, and only a *failing* `register()`
-    /// reports unavailable. Verified by registering and unregistering through
-    /// `plume loginitem register|unregister`.
+    /// reports unavailable. Verified by registering and unregistering from
+    /// Settings inside the installed bundle — `SMAppService` keys on the
+    /// *calling* app, so a bare binary always reports `notFound` regardless.
     static var state: State {
         switch SMAppService.mainApp.status {
         case .enabled: return .enabled

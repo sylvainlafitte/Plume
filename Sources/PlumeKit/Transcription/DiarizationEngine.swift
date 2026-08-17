@@ -28,7 +28,9 @@ protocol Diarizing: Sendable {
 /// Deliberately *not* the streaming diarizer. We batch — the file is on disk
 /// before we start — and FluidAudio's own AMI-SDM benchmarks put the offline
 /// pipeline at 10.6% DER against LS-EEND's 20.7%, with no speaker-count cap.
-/// See docs/PLAN.md F1.
+/// FluidAudio's own AMI-SDM benchmarks: this pipeline (pyannote community-1
+/// + VBx) 10.6% DER with no speaker cap, against LSEENDDiarizer's 20.7% (and
+/// OfflineSortformerDiarizer's 56.7%, a trap on long multi-speaker audio).
 ///
 /// An actor because `OfflineDiarizerManager` is a `public final class` holding
 /// `nonisolated(unsafe)` state: it is not `Sendable` and needs an owner, not a
@@ -54,7 +56,7 @@ actor OfflineDiarizer: Diarizing {
 
     private var box: ManagerBox?
 
-    /// Tuning, all measured rather than guessed — see docs/PLAN.md F1.
+    /// Tuning, all measured rather than guessed.
     private static func makeConfig(maxSpeakers: Int?) -> OfflineDiarizerConfig {
         var config = OfflineDiarizerConfig(
             // 0.6 (the community default) merges too eagerly and undercounts

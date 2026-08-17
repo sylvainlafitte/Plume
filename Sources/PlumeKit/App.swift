@@ -10,7 +10,11 @@ import Foundation
 // See spikes/responsible-process/RESULTS.md.
 //
 // That also removes the ArgumentParser dependency — an app doesn't need subcommands.
-// `doctor` survives as an argument because it's genuinely useful when something breaks.
+// The two that survive are dev tools, not product features: `diarize` and `summarize`
+// both work on a file or folder you already have, with no TCC involvement. Readiness
+// checks deliberately do NOT survive as a subcommand: from a terminal the system-audio
+// probe is attributed to the shell, so its answer is inconclusive in both directions.
+// Setup & Checks in the menu bar is the only honest surface for that.
 
 /// Entry point. Lives in the library so everything below it stays testable with
 /// `@testable import PlumeKit`; the executable target is a one-line shim.
@@ -18,28 +22,16 @@ public enum PlumeApp {
     @MainActor
     public static func run() {
         let args = Array(CommandLine.arguments.dropFirst())
-        if args.contains("doctor") {
-            runDoctorAndExit()
-        }
-        // Dev tool: report the login-item state. Only meaningful when run as
-        // `/Applications/Plume.app/Contents/MacOS/plume loginitem` — SMAppService
-        // keys on the *calling* bundle, so a bare binary always says notFound.
-        if args.contains("loginitem") {
-            print("bundle: \(Bundle.main.bundleIdentifier ?? "none") @ \(Bundle.main.bundlePath)")
-            print("state:  \(LoginItem.state)")
-            if args.contains("register") { print("register → \(LoginItem.set(true))") }
-            if args.contains("unregister") { print("unregister → \(LoginItem.set(false))") }
-            exit(0)
-        }
         // Dev tool, not a product feature: diarize a file and print the turns.
-        // This is the tuning loop for the held-aside test corpus (docs/PLAN.md
-        // R3) — production audio is deleted, so config changes can only be
-        // evaluated against kept recordings.
+        // This is the tuning loop for the held-aside corpus — production audio is
+        // deleted after transcription, so a config change can only be evaluated
+        // against recordings kept aside on purpose.
         if let index = args.firstIndex(of: "diarize"), index + 1 < args.count {
             runDiarizeAndExit(path: args[index + 1])
         }
-        // Dev tool: summarize a session folder in place. Phase 5 moves the
-        // trigger into the wrap-up panel; this keeps it verifiable meanwhile.
+        // Dev tool: summarize a session folder in place, against a chosen
+        // template. The wrap-up panel is the product path; this is how a prompt
+        // or template change gets tried on a real meeting without re-recording.
         if let index = args.firstIndex(of: "summarize"), index + 1 < args.count {
             let template = args.firstIndex(of: "--template").flatMap {
                 $0 + 1 < args.count ? args[$0 + 1] : nil
@@ -60,22 +52,6 @@ public enum PlumeApp {
         let delegate = AppDelegate()
         app.delegate = delegate
         app.run()
-    }
-
-    private static func runDoctorAndExit() -> Never {
-        let checks = DoctorReport.run(
-            recordingsRoot: Config.resolveRoot(cliOverride: nil), probeAudio: true)
-        DoctorReport.print(checks)
-        FileHandle.standardError.write(Data("""
-
-            note: the "system audio" result here is inconclusive in both directions. A bare
-            binary has no TCC identity of its own — capture is attributed to the responsible
-            process, i.e. your terminal. A pass means your terminal has permission; a failure
-            means it doesn't. Neither says anything about Plume.app. Use "Run diagnostics…"
-            from Plume's menu bar. See spikes/responsible-process/RESULTS.md.
-
-            """.utf8))
-        exit(DoctorReport.allOK(checks) ? 0 : 1)
     }
 
     private static func runSummarizeAndExit(path: String, templateID: String?) -> Never {
@@ -176,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             notifyUser(title: "Plume — startup checks failed", body: failed)
         }
 
-        // R8: reclaim scratch files a crashed diarization left behind. Cheap,
+        // Reclaim scratch files a crashed diarization left behind. Cheap,
         // and nothing else ever notices them.
         let swept = TempSweep.run()
         if !swept.isEmpty {
@@ -184,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // First run, or a cache someone cleared: show setup rather than letting
-        // the first meeting discover it. R7 — the download used to happen lazily
+        // the first meeting discover it: the download used to happen lazily
         // inside the first transcription, i.e. after a real meeting, with no
         // progress and no way to tell slow from broken.
         if SetupWindowController.isNeeded {
@@ -235,9 +211,6 @@ final class AppController {
             self?.settingsWindow.onOpenSetup = { [weak self] in self?.showSetup() }
             self?.settingsWindow.onUpdateCheckChanged = { [weak self] in
                 self?.updateWatch?.startIfEnabled()
-            }
-            self?.settingsWindow.onCheckForUpdates = { [weak self] in
-                await self?.checkForUpdatesNow() ?? nil
             }
             self?.settingsWindow.show()
         }
@@ -348,26 +321,6 @@ final class AppController {
     /// Settings changed while running — re-read rather than requiring a restart.
     func reloadCallDetection() { cameraWatch?.startIfEnabled() }
 
-    /// Settings' "Check now". Goes through the same state the menu bar reads, so
-    /// a check from one surface cannot leave the other showing something else —
-    /// the drift that AGENTS.md §4 records for the two meeting surfaces.
-    ///
-    /// Returns the result too, because Settings has to say *something* after a
-    /// button press: silence is the correct answer for a background check and
-    /// the wrong one for a deliberate click.
-    ///
-    /// Only ever *sets* the state, never clears it. nil means "current or
-    /// couldn't tell", and clearing on nil would let one offline click erase a
-    /// real finding — while the case it would supposedly handle cannot happen,
-    /// since installing an update means a new process with no state to stale.
-    func checkForUpdatesNow() async -> UpdateCheck.Release? {
-        // Explicitly ignores the setting: the press is the request. See
-        // `availableUpdate(honoringSetting:)`.
-        let release = await UpdateCheck.availableUpdate(honoringSetting: false)
-        if let release { state.updateAvailable = release }
-        return release
-    }
-
     /// Surfaced so `applicationDidFinishLaunching` can open setup without
     /// reaching into the controller's windows.
     func showSetup(firstRun: Bool = false) {
@@ -429,7 +382,7 @@ final class AppController {
         ticker = nil
         state.recording = .idle
         // The panel stays up and expands: the meeting isn't over for the user
-        // just because the recording is (docs/PLAN.md F8).
+        // just because the recording is.
         meetingPanel.stoppedRecording()
 
         let dir = session.dir

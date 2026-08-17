@@ -1,4 +1,4 @@
-# Spike B — result: **PASS**, and it overturns PLAN.md B2
+# Spike B — result: **PASS**, and it overturns the `sharingType` claim
 
 **Date:** 2026-08-14 · **Host:** M1 Pro, macOS 26.5.1 (25F80), Xcode 26.4.1, Swift 6.3.1
 
@@ -34,7 +34,7 @@ QuickTime screen recording of the full desktop, played back:
 | A | `.none` | `PLUME-SPIKE-B-HIDDEN` | **absent** |
 | B | `.readOnly` | `PLUME-SPIKE-B-CONTROL` | present |
 
-**PLAN.md B2 was wrong for our target OS.** It claimed `sharingType = .none` only ever blocked
+**The planning claim was wrong for our target OS.** It said `sharingType = .none` only ever blocked
 the legacy CoreGraphics path and is ineffective against ScreenCaptureKit on macOS 15.4+. On
 macOS 26.5.1, against QuickTime's ScreenCaptureKit-backed recorder, the excluded window is
 genuinely absent from the capture while the control panel appears normally.

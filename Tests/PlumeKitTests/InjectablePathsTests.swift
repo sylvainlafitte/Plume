@@ -21,7 +21,7 @@ struct InjectablePathsTests {
     ///
     /// This is the regression that `SummaryEngine` holding no `OllamaClient`
     /// exists to prevent: a client built at launch pins the model configured
-    /// then, while Settings, the readiness caption and `doctor` all report the
+    /// then, while Settings and the readiness caption both report the
     /// current one — and the stale name gets stamped into `meeting.md` as
     /// provenance.
     @Test("a model changed in config is visible to the next read")

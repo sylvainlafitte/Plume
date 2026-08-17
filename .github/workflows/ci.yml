@@ -1,6 +1,6 @@
 # Build and test on a clean macOS runner.
 #
-# The point of this workflow is that 185 tests only stay honest if they run
+# The point of this workflow is that 187 tests only stay honest if they run
 # somewhere that is not the author's Mac. Everything here must therefore work
 # with no Developer ID, no TCC grants, no audio devices, no FluidAudio model
 # cache and no Ollama — which the suite already satisfies: it is pure unit
@@ -36,19 +36,11 @@ jobs:
           # nothing about the stamp. Full history keeps the check meaningful.
           fetch-depth: 0
 
-      # Only the resolved dependency clones, never .build output: FluidAudio is
-      # a big checkout, while cached object files are how a stale build passes.
-      #
-      # The path is macOS's, not the ~/.cache one every Linux example shows —
-      # verified by listing it. Cached to the wrong path this step still
-      # "succeeds", every run, while caching nothing.
-      - name: Cache SwiftPM dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/org.swift.swiftpm
-          key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
-          restore-keys: swiftpm-${{ runner.os }}-
-
+      # No dependency cache on purpose. Cloning FluidAudio fresh costs well under
+      # a minute on a job nothing waits on, and a cache is a second thing that
+      # can be wrong in a way that still reports success — pointed at the wrong
+      # path it "succeeds" every run while caching nothing, and a stale hit is
+      # how a build passes against code that is no longer there.
       - name: Toolchain
         run: swift --version
 

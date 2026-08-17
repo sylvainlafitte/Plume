@@ -4,8 +4,7 @@ import Testing
 @testable import PlumeKit
 
 // Placeholder coverage proving the library target is reachable from tests.
-// Real coverage arrives with the marker-region and speaker-attribution work
-// (docs/PLAN.md, Verification).
+// The real coverage lives in the marker-region and speaker-attribution suites.
 @Suite("Config")
 struct ConfigTests {
     @Test("default root is ~/Meetings, not Quill's ~/Recordings")

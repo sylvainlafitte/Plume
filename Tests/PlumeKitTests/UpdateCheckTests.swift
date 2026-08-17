@@ -23,12 +23,9 @@ struct UpdateCheckTests {
             ("0.1.1", "0.1.0"),
             ("0.2.0", "0.1.9"),
             ("1.0.0", "0.9.9"),
-            ("0.1.0", "0.0.9"),
             // Tag spellings that must not change the answer.
             ("v0.2.0", "0.1.0"),
             ("0.2.0", "v0.1.0"),
-            // Build metadata is not part of precedence.
-            ("0.2.0+build.7", "0.1.0"),
             // Fewer components on either side means zeros, not incomparable.
             ("0.2", "0.1.9"),
             ("1", "0.9"),
@@ -45,7 +42,6 @@ struct UpdateCheckTests {
             ("v0.1.0", "0.1.0"),
             ("0.1", "0.1.0"),
             ("0.1.0", "0.1"),
-            ("0.1.0+build.9", "0.1.0"),
             // Older.
             ("0.1.0", "0.1.1"),
             ("0.9.9", "1.0.0"),
@@ -56,20 +52,17 @@ struct UpdateCheckTests {
             ("0.1.x", "0.1.0"),
             ("-1.0.0", "0.1.0"),
             ("0.1.0", "not-a-version"),
+            // Suffixed tags are refused outright rather than ranked. A
+            // prerelease or build tag should never reach here — /releases/latest
+            // excludes prereleases and `release(from:)` re-checks the flag — so
+            // one that does means something is off, and silence is the safe
+            // answer to that.
+            ("0.2.0-rc.1", "0.1.0"),
+            ("0.2.0+build.7", "0.1.0"),
+            ("0.2.0", "0.2.0-rc.1"),
         ])
     func notNewer(remote: String, local: String) {
         #expect(!UpdateCheck.isNewer(remote, than: local))
-    }
-
-    /// A prerelease of the next version is not the next version. `/releases/latest`
-    /// already excludes prereleases, so this is the second line of defence — it
-    /// only matters if a prerelease is ever marked as the latest release by hand.
-    @Test("a prerelease sorts below the release it precedes")
-    func prereleaseOrdering() {
-        #expect(UpdateCheck.isNewer("0.2.0", than: "0.2.0-rc.1"))
-        #expect(!UpdateCheck.isNewer("0.2.0-rc.1", than: "0.2.0"))
-        // But it is still newer than the version it follows.
-        #expect(UpdateCheck.isNewer("0.2.0-rc.1", than: "0.1.0"))
     }
 
     // MARK: - Parsing the API's answer
@@ -82,20 +75,14 @@ struct UpdateCheckTests {
         Data(#"{"tag_name":"\#(tag)","html_url":"\#(url)"\#(extra)}"#.utf8)
     }
 
-    @Test("a normal release yields its version and page")
+    @Test("a normal release yields its version and its page, not its asset")
     func parsesRelease() throws {
         let release = try #require(UpdateCheck.release(from: payload()))
         // The leading v is stripped: it is a tag convention, not the version.
         #expect(release.version == "0.2.0")
+        // The URL is the release *page*. Pointing at the asset would start a
+        // download nobody asked for, and Plume never installs anything.
         #expect(release.url.absoluteString.hasSuffix("/releases/tag/v0.2.0"))
-    }
-
-    /// The URL is the release *page*. Pointing at the asset would start a
-    /// download the user did not ask for, and Plume never installs anything.
-    @Test("the page is what is offered, not the asset")
-    func pointsAtThePage() throws {
-        let release = try #require(UpdateCheck.release(from: payload()))
-        #expect(!release.url.absoluteString.hasSuffix(".zip"))
     }
 
     @Test(
@@ -120,18 +107,15 @@ struct UpdateCheckTests {
 
     // MARK: - The decision as a whole
 
-    @Test("a newer release reaches the caller")
-    func reportsUpdate() async throws {
+    @Test("a newer release reaches the caller, the current one does not")
+    func reportsOnlyAnUpdate() async throws {
         let found = await UpdateCheck.availableUpdate(
             local: "0.1.0", fetch: { self.payload() })
         #expect(try #require(found).version == "0.2.0")
-    }
 
-    @Test("the current version reports nothing")
-    func silentWhenCurrent() async {
-        let found = await UpdateCheck.availableUpdate(
+        let current = await UpdateCheck.availableUpdate(
             local: "0.2.0", fetch: { self.payload() })
-        #expect(found == nil)
+        #expect(current == nil)
     }
 
     /// Offline, rate-limited, DNS-hijacked, 500 — `fetchLatest` collapses them
@@ -144,45 +128,10 @@ struct UpdateCheckTests {
 
     /// The setting is checked *before* the fetch closure is called, so "off"
     /// means no request is constructed — not a request whose answer is dropped.
-    /// That is the difference between a privacy claim and a UI preference.
+    /// That is the difference between a privacy claim and a UI preference, and
+    /// with no "Check now" button there is no second path that could weaken it.
     @Test("switched off, nothing is even fetched")
     func offMeansNoRequest() throws {
-        let (found, fetched) = withUpdateCheckDisabled { probe in
-            await UpdateCheck.availableUpdate(
-                local: "0.1.0", fetch: { probe.called = true; return self.payload() })
-        }
-        #expect(found == nil)
-        #expect(!fetched, "the setting must gate the request, not the result")
-    }
-
-    /// Settings' **Check now** asks even with the setting off, because the press
-    /// is the request — the same consent-by-click rule as the call-detection
-    /// notification. Without this, the button would report "up to date" having
-    /// asked nobody, which is the one thing this feature must never do.
-    @Test("Check now asks even when automatic checks are off")
-    func explicitCheckBypassesTheSetting() throws {
-        let (found, fetched) = withUpdateCheckDisabled { probe in
-            await UpdateCheck.availableUpdate(
-                local: "0.1.0", honoringSetting: false,
-                fetch: { probe.called = true; return self.payload() })
-        }
-        #expect(fetched, "an explicit check must actually ask")
-        #expect(found?.version == "0.2.0")
-    }
-
-    /// Records whether the fetch closure ran. A class box because the closure is
-    /// `@Sendable`.
-    final class Probe: @unchecked Sendable { var called = false }
-
-    /// Runs `body` against a config file with `update_check: false`.
-    ///
-    /// `Config.withPath` is synchronous, so the async call is bridged *inside* the
-    /// closure: a `Task` created there inherits the task-local override, one
-    /// created outside would not see it at all — and the test would then pass for
-    /// the wrong reason on a machine whose real config happens to disable this.
-    private func withUpdateCheckDisabled(
-        _ body: @escaping @Sendable (Probe) async -> UpdateCheck.Release?
-    ) -> (UpdateCheck.Release?, Bool) {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("plume-update-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -190,17 +139,27 @@ struct UpdateCheckTests {
         let config = directory.appendingPathComponent("config.json")
         try? Data(#"{"update_check":false}"#.utf8).write(to: config)
 
+        // `Config.withPath` is synchronous, so the async call is bridged *inside*
+        // the closure: a `Task` created there inherits the task-local override,
+        // one created outside would not see it at all — and the test would then
+        // pass for the wrong reason on a machine whose real config disables this.
         let probe = Probe()
         let found = Config.withPath(config) { () -> UpdateCheck.Release? in
             let semaphore = DispatchSemaphore(value: 0)
             nonisolated(unsafe) var result: UpdateCheck.Release?
             Task {
-                result = await body(probe)
+                result = await UpdateCheck.availableUpdate(
+                    local: "0.1.0", fetch: { probe.called = true; return self.payload() })
                 semaphore.signal()
             }
             semaphore.wait()
             return result
         }
-        return (found, probe.called)
+        #expect(found == nil)
+        #expect(!probe.called, "the setting must gate the request, not the result")
     }
+
+    /// Records whether the fetch closure ran. A class box because the closure is
+    /// `@Sendable`.
+    final class Probe: @unchecked Sendable { var called = false }
 }

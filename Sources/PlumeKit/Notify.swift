@@ -10,8 +10,8 @@ import UserNotifications
 /// Script Editor rather than Plume. Observed 2026-08-16.
 ///
 /// `UNUserNotificationCenter` requires a bundle identifier and a valid
-/// signature, which Plume.app now has. The fallback survives for the CLI
-/// (`plume doctor`, `plume summarize`), where there is no bundle and a
+/// signature, which Plume.app now has. The fallback survives for the dev CLI
+/// (`plume diarize`, `plume summarize`), where there is no bundle and a
 /// misattributed notification beats no notification at all.
 enum Notify {
 
@@ -66,7 +66,7 @@ enum Notify {
         }
     }
 
-    /// CLI path only. Kept because `plume doctor` and friends have no bundle.
+    /// CLI path only. Kept because the dev subcommands have no bundle.
     private static func postViaScript(title: String, body: String) {
         func quoted(_ s: String) -> String {
             "\"" + s.replacingOccurrences(of: "\\", with: "\\\\")

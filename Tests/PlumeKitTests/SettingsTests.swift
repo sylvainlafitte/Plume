@@ -13,18 +13,30 @@ struct SettingsTests {
     func snakeCase() throws {
         let settings = try decode("""
             { "recordings_dir": "~/Elsewhere",
-              "on_stop": "say done",
               "mic_voice_processing": true,
               "update_check": false,
-              "transcription": { "enabled": false, "engine": "parakeet" } }
+              "transcription": { "engine": "parakeet" } }
             """)
         #expect(settings.recordingsDir == "~/Elsewhere")
-        #expect(settings.onStop == "say done")
         #expect(settings.micVoiceProcessing == true)
         // The one key whose *absence* must not read as "off": it gates a network
         // request, so a decoding slip here would silently disable the feature.
         #expect(settings.updateCheck == false)
-        #expect(settings.transcription?.enabled == false)
+        #expect(settings.transcription?.engine == "parakeet")
+    }
+
+    @Test("a config file from before the retired keys still decodes")
+    func retiredKeysAreIgnored() throws {
+        // `on_stop` and `transcription.enabled` were removed. An existing
+        // config.json still carrying them must decode, not throw — otherwise
+        // upgrading would make Plume fall back to all-defaults, silently
+        // relocating the meetings folder.
+        let settings = try decode("""
+            { "recordings_dir": "~/Elsewhere",
+              "on_stop": "say done",
+              "transcription": { "enabled": false, "engine": "parakeet" } }
+            """)
+        #expect(settings.recordingsDir == "~/Elsewhere")
         #expect(settings.transcription?.engine == "parakeet")
     }
 
@@ -45,12 +57,39 @@ struct SettingsTests {
         #expect(!text.contains("update_check"))
     }
 
+    /// The decoding test above proves the type tolerates them; this proves the
+    /// *live path* does, which is the one that matters on upgrade. `Config`
+    /// falls back to all-nil defaults for a file it cannot parse — so a
+    /// regression here would silently relocate someone's meetings folder to
+    /// `~/Meetings` rather than fail loudly.
+    @Test("a live config file carrying retired keys still resolves the real root")
+    func retiredKeysDoNotResetTheConfig() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("plume-retired-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("config.json")
+        try Data("""
+            { "recordings_dir": "/tmp/plume-elsewhere",
+              "on_stop": "say done",
+              "call_detection": true,
+              "transcription": { "enabled": false, "engine": "parakeet" } }
+            """.utf8).write(to: path)
+
+        Config.withPath(path) {
+            #expect(Config.resolveRoot(cliOverride: nil).path == "/tmp/plume-elsewhere")
+            // The keys that outlived the retirement still work.
+            #expect(Config.callDetectionEnabled())
+            #expect(Config.transcriptionEngine() == "parakeet")
+        }
+    }
+
     @Test("a partial config decodes without losing the rest")
     func partialConfig() throws {
-        let settings = try decode(#"{ "transcription": { "enabled": true } }"#)
-        #expect(settings.transcription?.enabled == true)
-        #expect(settings.transcription?.engine == nil)
-        #expect(settings.onStop == nil)
+        let settings = try decode(#"{ "transcription": { "engine": "parakeet" } }"#)
+        #expect(settings.transcription?.engine == "parakeet")
+        #expect(settings.recordingsDir == nil)
+        #expect(settings.micVoiceProcessing == nil)
     }
 
     @Test("round-trip preserves every set field")
@@ -58,7 +97,7 @@ struct SettingsTests {
         var original = Settings()
         original.recordingsDir = "/tmp/meetings"
         original.micVoiceProcessing = false
-        original.transcription = .init(enabled: true, engine: "parakeet")
+        original.transcription = .init(engine: "parakeet")
 
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(Settings.self, from: data)

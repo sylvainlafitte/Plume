@@ -9,8 +9,8 @@ import Foundation
 ///
 /// Both surfaces had their own copy of this timer. **`flush()` must run before a
 /// surface switches meetings**, or pending text lands in the wrong one: starting
-/// a second recording while the first is still in wrap-up is a designed-for case
-/// (PLAN R11), not an edge one.
+/// a second recording while the first is still in wrap-up is a designed-for
+/// case, not an edge one.
 @MainActor
 final class NotesAutosave {
     private var timer: Timer?

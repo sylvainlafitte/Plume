@@ -8,7 +8,7 @@ Does a `.app` launched via LaunchServices get its own TCC identity for system-au
 or does it record silence the way a shell-launched binary does
 ([quill#54](https://github.com/digimata/quill/pull/54))?
 
-This gated the Phase 1 packaging decision in [docs/PLAN.md](../../docs/PLAN.md).
+This gated the packaging decision: bundle, or bare LaunchAgent binary.
 
 ## Method
 
@@ -50,7 +50,7 @@ predict capture health, the empirical check is the only thing that can.
 
 **Method lesson:** the original result was a single measurement with an uncontrolled variable
 (the terminal's TCC state), reported as a general law. Same class of error as the `[verified]`
-tag this project already caught in PLAN.md B2 — a real observation, over-generalised.
+tag this project already caught with `sharingType` — a real observation, over-generalised.
 
 ## Conclusions
 

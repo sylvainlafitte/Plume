@@ -4,7 +4,7 @@ import SwiftUI
 /// Three views of one meeting: the input, the output, and interrogating it.
 ///
 /// Phase 7's Ask becomes the third case. It was originally planned as a row
-/// pinned under the summary (PLAN.md F11), on the grounds that a tab living only
+/// pinned under the summary, on the grounds that a tab living only
 /// in the post-call panel would be in the wrong place for old meetings. Sharing
 /// this view between the panel and the history window dissolved that objection —
 /// a tab now appears in both — and a tab is the better shape anyway: Ask is a

@@ -7,7 +7,7 @@ import Foundation
 /// Every other signal lies. A system tap created without permission returns
 /// `noErr`, reports a correct stream format, creates its aggregate device, and
 /// fires its IOProc at exactly the right rate — while every sample is zero.
-/// Measured in spikes/responsible-process/RESULTS.md. So `doctor` plays a tone
+/// Measured in spikes/responsible-process/RESULTS.md. So the check plays a tone
 /// and asserts the samples aren't all zero; nothing cheaper is trustworthy.
 enum AudioProbe {
 
@@ -42,7 +42,7 @@ enum AudioProbe {
     /// still too quiet to transcribe well. Observed 2026-08-14 with macOS input
     /// volume at 29/100 — speech peaked at −31 dBFS. Since audio is deleted
     /// immediately after transcription, a whole meeting can be degraded with no
-    /// way to redo it (docs/PLAN.md R14b).
+    /// way to redo it.
     static func probeMicrophone(duration: TimeInterval = 1.5) -> Level? {
         let engine = AVAudioEngine()
         let input = engine.inputNode
@@ -130,7 +130,7 @@ private final class ToneGenerator {
 }
 
 /// Minimal one-shot system tap used only for diagnostics. The real recorder is
-/// SystemAudioRecorder; this exists so `doctor` can measure without writing a file.
+/// SystemAudioRecorder; this exists so the check can measure without writing a file.
 private final class SystemTapProbe {
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)

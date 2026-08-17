@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Browse past meetings.
 ///
-/// Deliberately **not** an in-app markdown editor (docs/PLAN.md "Scope"): the
+/// Deliberately **not** an in-app markdown editor: the
 /// files are markdown in a folder and every Mac has a good editor, so this
 /// window does the things an editor can't — regenerate a summary with a
 /// different template, and rename or merge speakers, both of which have to

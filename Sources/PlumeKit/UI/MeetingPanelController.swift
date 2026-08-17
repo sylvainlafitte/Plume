@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Drives the floating panel through a meeting's life.
 ///
-/// The flow the panel exists to support (docs/PLAN.md F8): stopping the
+/// The flow the panel exists to support: stopping the
 /// recording does not end the interaction. The panel stays up and expands, so
 /// final thoughts can be added while transcription runs, and only then is the
 /// summary generated. Summarization is **human-triggered**, which is why a
@@ -178,7 +178,7 @@ final class MeetingPanelController: MeetingDetailModel {
 
     /// Runs before `session` is reassigned in `startedRecording` — a second
     /// meeting starting while the first is in wrap-up must not write the first
-    /// meeting's pending notes into the second's folder (PLAN R11).
+    /// meeting's pending notes into the second's folder.
     func flushNotes() { autosave.flush() }
 
     private func writeNotes() {

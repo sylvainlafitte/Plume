@@ -3,14 +3,14 @@ import Foundation
 /// Asks GitHub whether a newer release exists, and never does anything else.
 ///
 /// **Why this exists at all.** Plume ships outside the App Store, so nothing on
-/// the machine will ever tell you a new version is out. Homebrew users get
-/// `brew upgrade`; everyone who downloaded a zip has no mechanism whatsoever.
+/// the machine will ever tell you a new version is out. Someone who downloaded
+/// a zip has no mechanism whatsoever.
 ///
 /// **Why it is this small.** No appcast, no EdDSA key, no self-replacing bundle.
 /// The one thing that ships is: a menu-bar line that appears only when an update
 /// exists, and a click that opens the release page. Downloading and swapping the
-/// bundle is Sparkle's job and Sparkle's failure modes; `brew upgrade` and a
-/// drag to /Applications already work.
+/// bundle is Sparkle's job and Sparkle's failure modes; downloading the new zip
+/// and dragging it to /Applications already works.
 ///
 /// **The privacy cost is real and is the reason for the toggle.** This is the
 /// only outbound request Plume makes that is not localhost and not the one-time
@@ -32,8 +32,8 @@ public enum UpdateCheck {
     public struct Release: Sendable, Equatable {
         /// Version as published, with any leading `v` removed.
         public let version: String
-        /// The **release page**, never the asset: what a user does next differs
-        /// (brew, or download and drag), and the page explains the release.
+        /// The **release page**, never the asset: the page explains what changed,
+        /// which is what decides whether you want it at all.
         public let url: URL
     }
 
@@ -60,33 +60,30 @@ public enum UpdateCheck {
 
     // MARK: - Pure
 
-    /// Parsed form of a version string. Two numeric components are enough for
-    /// this project, but a third is common, so any number of them is accepted.
+    /// Parsed form of a version string: dotted non-negative integers, nothing
+    /// else. Two components are enough for this project, but a third is common,
+    /// so any number of them is accepted.
+    ///
+    /// **Refusing to parse must mean "say nothing"**, never "assume newer": the
+    /// failure mode of guessing is a permanent, un-dismissable "update
+    /// available" line pointing at a release that may not exist. So anything
+    /// with a prerelease or build suffix (`1.0.0-rc.1`, `1.0.0+build`) is simply
+    /// refused rather than ranked. `/releases/latest` already excludes
+    /// prereleases and `release(from:)` re-checks the flag, so a tag reaching
+    /// here with a suffix means something is off — and silence is the safe
+    /// answer to that, not a comparison.
     struct Version: Comparable, Equatable {
         let components: [Int]
-        /// Anything after a `-`. A prerelease sorts *below* the same release,
-        /// which is the one rule you cannot get from comparing numbers.
-        let prerelease: String?
 
-        /// nil for anything that isn't a version. **Refusing to parse must mean
-        /// "say nothing"**, never "assume newer": the failure mode of guessing
-        /// is a permanent, un-dismissable "update available" line pointing at a
-        /// release that may not exist.
         init?(_ raw: String) {
             var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if text.first == "v" || text.first == "V" { text.removeFirst() }
-            // Build metadata is explicitly not part of precedence in semver.
-            if let plus = text.firstIndex(of: "+") { text = String(text[text.startIndex..<plus]) }
 
-            let parts = text.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
-            guard let core = parts.first, !core.isEmpty else { return nil }
-
-            let numbers = core.split(separator: ".").map { Int($0) }
+            let numbers = text.split(separator: ".").map { Int($0) }
             guard !numbers.isEmpty, numbers.allSatisfy({ $0 != nil && $0! >= 0 }) else {
                 return nil
             }
             components = numbers.map { $0! }
-            prerelease = parts.count > 1 && !parts[1].isEmpty ? String(parts[1]) : nil
         }
 
         static func < (lhs: Version, rhs: Version) -> Bool {
@@ -97,16 +94,7 @@ public enum UpdateCheck {
                 let right = index < rhs.components.count ? rhs.components[index] : 0
                 if left != right { return left < right }
             }
-            switch (lhs.prerelease, rhs.prerelease) {
-            case (nil, nil): return false
-            // 1.0.0-rc.1 precedes 1.0.0. Identifier-by-identifier comparison of
-            // prereleases is not worth it here: we only ever ask "is the remote
-            // newer", and two different prereleases of the same core version are
-            // not a case this feature needs to rank.
-            case (.some, nil): return true
-            case (nil, .some): return false
-            case (.some(let left), .some(let right)): return left < right
-            }
+            return false
         }
     }
 
@@ -151,18 +139,14 @@ public enum UpdateCheck {
     /// `local` and `fetch` are parameters so the decision is testable without a
     /// bundle and without the network.
     ///
-    /// `honoringSetting: false` is for Settings' **Check now**, and is not a
-    /// loophole: the same reasoning as the call-detection notification, where the
-    /// button click *is* the consent. Without it, pressing the button with
-    /// automatic checks off would answer "up to date" having asked nobody —
-    /// which is the one thing this feature must never do, since it would be
-    /// stating as fact something it did not check.
+    /// The setting gates the *request*, not the result: off means no request is
+    /// constructed at all, which is what makes the README's claim about what
+    /// leaves the machine true rather than approximately true.
     static func availableUpdate(
         local: String = currentVersion,
-        honoringSetting: Bool = true,
         fetch: @Sendable () async -> Data? = fetchLatest
     ) async -> Release? {
-        guard !honoringSetting || Config.updateCheckEnabled() else { return nil }
+        guard Config.updateCheckEnabled() else { return nil }
         guard let data = await fetch(), let release = release(from: data) else { return nil }
         guard isNewer(release.version, than: local) else { return nil }
         return release
@@ -213,7 +197,7 @@ final class UpdateWatch {
     private let onFound: (UpdateCheck.Release) -> Void
 
     /// Long enough that the check never competes with the things launch actually
-    /// has to do — the doctor report, model setup, resuming the transcription
+    /// has to do — the readiness checks, model setup, resuming the transcription
     /// queue — and short enough that it has answered before anyone opens a menu.
     static let launchDelay: TimeInterval = 20
 
@@ -243,8 +227,9 @@ final class UpdateWatch {
         timer = nil
     }
 
-    /// Also the Settings "Check now" path, which is why it re-reads the setting
-    /// rather than trusting the timer's existence.
+    /// Re-reads the setting rather than trusting the timer's existence: the
+    /// launch-delay task is already in flight by the time a toggle can stop the
+    /// timer, so this is the point that has to honour it.
     func check() {
         Task { [onFound] in
             guard let release = await UpdateCheck.availableUpdate() else { return }

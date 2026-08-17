@@ -6,7 +6,7 @@ import Foundation
 /// them into segments. Phase 2 needs them: a segment can run up to 60 words and
 /// routinely spans a speaker change, so attributing speakers *per segment* would
 /// smear turns together. Diarization assigns a speaker per word, then segments
-/// are rebuilt on speaker boundaries. See docs/PLAN.md F6.
+/// are rebuilt on speaker boundaries.
 struct Word: Sendable, Codable, Equatable {
     let text: String
     let start: TimeInterval
@@ -37,7 +37,7 @@ struct TranscriptSegment: Sendable, Equatable {
 /// Diarization only has to split the *remote* track further, so `remote(n)`
 /// carries anonymous session-local indices ("S1", "S2"), never a real name until
 /// a human confirms one — a wrong name attributes quotes to someone who didn't
-/// say them, which is worse than an honest S1 (docs/PLAN.md invariant 3).
+/// say them, which is worse than an honest S1 (AGENTS.md invariant 3).
 enum Speaker: Sendable, Equatable, Hashable {
     case me
     case them

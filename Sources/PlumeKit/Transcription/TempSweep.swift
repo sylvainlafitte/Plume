@@ -1,6 +1,6 @@
 import Foundation
 
-/// Delete FluidAudio's abandoned scratch files at launch (PLAN R8).
+/// Delete FluidAudio's abandoned scratch files at launch.
 ///
 /// Diarization converts the whole track to 16 kHz mono float32 in
 /// `temporaryDirectory` before mmapping it — roughly 460 MB for a two-hour

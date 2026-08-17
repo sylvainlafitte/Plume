@@ -8,7 +8,7 @@ import Foundation
 /// failure modes (diarizer model missing, Ollama unreachable, tap gone silent,
 /// summarization failed) and Phases 5–6 add a panel and a window that need the
 /// same state. Fanning out from one observable object is ~30 lines and avoids
-/// retrofitting later. See docs/PLAN.md, "What we inherit that needs fixing".
+/// retrofitting later.
 @MainActor
 @Observable
 public final class AppState {

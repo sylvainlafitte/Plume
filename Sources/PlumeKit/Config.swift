@@ -7,12 +7,10 @@ import Foundation
 /// "unset, follow the app default" into a pin that survives future changes.
 struct Settings: Codable, Sendable, Equatable {
     struct Transcription: Codable, Sendable, Equatable {
-        var enabled: Bool?
         var engine: String?
     }
 
     var recordingsDir: String?
-    var onStop: String?
     var micVoiceProcessing: Bool?
     var transcriptEchoFilter: Bool?
     var expectedParticipants: Int?
@@ -25,7 +23,6 @@ struct Settings: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case recordingsDir = "recordings_dir"
-        case onStop = "on_stop"
         case micVoiceProcessing = "mic_voice_processing"
         case transcriptEchoFilter = "transcript_echo_filter"
         case expectedParticipants = "expected_participants"
@@ -42,15 +39,11 @@ struct Settings: Codable, Sendable, Equatable {
 ///
 ///     {
 ///       "recordings_dir": "~/Meetings",
-///       "transcription": { "enabled": true, "engine": "parakeet" },
-///       "mic_voice_processing": true,
-///       "on_stop": "my-hook"
+///       "transcription": { "engine": "parakeet" },
+///       "mic_voice_processing": true
 ///     }
 ///
 /// Resolution order for the meetings root: config file > ~/Meetings.
-/// `on_stop` is a shell command spawned with the session directory as its
-/// argument — after the transcript is written, or right after recording when
-/// transcription is disabled.
 ///
 /// The file is the single source of truth: the settings window reads and writes
 /// it, so a hand-edit and a UI edit can never disagree.
@@ -96,23 +89,6 @@ enum Config {
     static func recordingsDir() -> URL? {
         guard let dir = current().recordingsDir, !dir.isEmpty else { return nil }
         return URL(fileURLWithPath: (dir as NSString).expandingTildeInPath, isDirectory: true)
-    }
-
-    /// Shell command to spawn after each session's transcript is written (or
-    /// after recording, if transcription is disabled), or nil.
-    static func onStop() -> String? {
-        guard let cmd = current().onStop, !cmd.isEmpty else { return nil }
-        return cmd
-    }
-
-    /// Whether finished recordings are transcribed automatically. Default on.
-    /// Deliberately **not** in the settings window. Off, a recording stops at
-    /// `recorded` forever: no transcript, no summary, no meeting.md — the whole
-    /// app does nothing, from a toggle that reads like an ordinary preference.
-    /// It survives as a config key because Quill's CLI has a legitimate
-    /// record-only mode; a hand-edit still honours it.
-    static func transcriptionEnabled() -> Bool {
-        current().transcription?.enabled ?? true
     }
 
     /// Notify when the camera turns on and Plume isn't recording. **Default

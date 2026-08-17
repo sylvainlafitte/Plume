@@ -16,7 +16,7 @@ Two things reach the network, and nothing else:
 - the one-time download of the speech models, from Hugging Face;
 - a daily check for a new release, which asks GitHub for the latest version number and sends no
   identifier. Turn it off in Settings ▸ Updates, or set `"update_check": false` in
-  `~/.config/plume/config.json`; Plume then asks only when you press **Check now**.
+  `~/.config/plume/config.json`; Plume then makes no request at all.
 
 Audio is deleted after transcription. The transcript and your notes remain in `meeting.md`.
 
@@ -40,17 +40,9 @@ Audio is deleted after transcription. The transcript and your notes remain in `m
 
 ## Install
 
-```bash
-brew install --cask sylvainlafitte/tap/plume
-```
-
-Two things to know. Homebrew treats any non-official tap as untrusted: installing it by full name as
-above trusts this one, but other `brew` commands may refuse until you run
-`brew trust sylvainlafitte/tap`. And Homebrew will not install over an existing
-`/Applications/Plume.app` — move that to the Trash first if you installed by hand before.
-
-Or download the latest release from [Releases](https://github.com/sylvainlafitte/Plume/releases),
-unzip it, and move **Plume.app** to `/Applications`.
+Download the latest release from [Releases](https://github.com/sylvainlafitte/Plume/releases),
+unzip it, and move **Plume.app** to `/Applications`. The build is signed and notarized, so it
+opens without a Gatekeeper detour.
 
 To build from source:
 
@@ -86,22 +78,26 @@ transcribes the meeting and writes the notes, summary and transcript to:
 Open the Meetings window later to edit notes, change a template, rename speakers or regenerate a
 summary. The files are yours to move, edit and keep.
 
-## Updating
+## Templates and spelling
 
-If you installed with Homebrew:
+Templates are Markdown files. Edit one, or add your own, in:
 
-```bash
-brew upgrade --cask plume
+```text
+~/Library/Application Support/Plume/Templates
 ```
 
-Otherwise download the new release and replace **Plume.app**. Plume tells you when a new version
-exists — a line in the menu bar that opens the release page — but it never installs anything by
-itself.
+`Vocabulary.md` beside that folder is a plain list of names and jargon; Plume uses it to spell
+them correctly **in the summary**. It cannot correct the transcript, which is already written by
+the time a summary runs.
+
+## Updating
+
+Download the new release and replace **Plume.app**. Plume tells you when a new version exists — a
+line in the menu bar that opens the release page — but it never installs anything by itself.
 
 ## Uninstalling
 
-Move **Plume.app** to the Trash (or `brew uninstall --cask plume`), then remove what it wrote
-outside the app:
+Move **Plume.app** to the Trash, then remove what it wrote outside the app:
 
 ```bash
 rm -rf ~/.config/plume ~/Library/Application\ Support/Plume ~/Library/Logs/Plume
@@ -113,10 +109,9 @@ audio it came from is already deleted. The speech models live in
 
 ## Privacy
 
-Plume processes meeting data locally and sends no meeting data anywhere. Ollama runs locally on your
-Mac. The only requests Plume makes are the two listed under [Local by default](#local-by-default),
-neither of which carries anything about you or your meetings. Tell participants when you are
-recording and follow the laws that apply where you are.
+No meeting data leaves your Mac — the only two requests Plume makes are listed under
+[Local by default](#local-by-default), and neither carries anything about you or your meetings.
+Tell participants when you are recording, and follow the laws that apply where you are.
 
 ## License
 

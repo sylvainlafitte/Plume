@@ -4,7 +4,7 @@ import Foundation
 /// Fetching the on-device models *deliberately*, with progress, instead of
 /// letting the first meeting do it lazily.
 ///
-/// PLAN R7. Both engines call `downloadAndLoad` / `prepareModels` on first use,
+/// Both engines call `downloadAndLoad` / `prepareModels` on first use,
 /// which on a fresh machine means the first recording appears to hang for as
 /// long as ~600 MB takes to arrive — after the meeting is over, when there is
 /// nothing to look at and no way to tell a slow download from a broken app.

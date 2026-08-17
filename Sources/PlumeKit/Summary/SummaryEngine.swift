@@ -26,7 +26,7 @@ actor SummaryEngine {
     /// `Config.summaryModel()`, and both UI surfaces build their engine during
     /// `AppController.init` — so a stored client pins whatever model was
     /// configured at launch. Settings, the readiness caption beside Summarise
-    /// and `doctor` all build fresh clients, so after changing the model they
+    /// and the readiness checks all build fresh clients, so after changing it they
     /// would all report the new one while the old one actually wrote the
     /// summary — and got stamped into `model:` as provenance, in the only
     /// surviving record of the meeting.
