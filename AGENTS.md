@@ -123,7 +123,7 @@ an earlier design. **Don't "fix" them without asking.**
 | Looks like | Actually |
 |---|---|
 | Call detection never starts a recording | It notifies, and the notification's button starts one — the click is the consent. Off by default (`call_detection`), camera-triggered, and blind to audio-only calls on purpose: a false positive that recorded a meeting is the only unrecoverable failure this feature could have. |
-| Setup and diagnostics are one window | Merged 2026-08-16. They asked the same six `DoctorReport` checks, and the split had already produced two readings of one probe. `DoctorReport` is the engine; the window and `plume doctor` are both renderers. Probes stay behind a button (~2 s, plays a tone), and the window auto-opens only when the models are missing. |
+| Setup and diagnostics are one window | Merged 2026-08-16. They asked the same six `DoctorReport` checks, and the split had already produced two readings of one probe. `DoctorReport` is the engine; the window and `plume doctor` are both renderers. Probes stay behind a button (~2 s, plays a tone), and the window auto-opens only when the models are missing. The one thing that differs between its two entries is a closing CTA shown **only** on the launch-opened instance — from Settings it is a diagnostics window, where "you can close this now" says nothing. It is a parameter of the showing, not of the window, and it is guidance rather than a step: still a window, not a wizard. |
 | No transcript view in the app | Deliberate. The transcript is summarizer input and text in `meeting.md`. Speaker rows show sample lines so you can identify a voice without one. |
 | Notes have no automatic timestamps | Reversed in Phase 5: stamps went stale whenever a line was edited, and most notes aren't anchored to a moment. ⌘T inserts one on purpose. |
 | Summarizing is manual | The wrap-up gate is the point — you add final thoughts *then* summarize. A meeting resting at `transcribed` forever is normal. |
@@ -352,7 +352,7 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-17, after CI, the Homebrew cask and the update check.*
+*Last reviewed against the code: 2026-08-17, after the setup and speaker-row pass.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass does
 not happen, and a silently wrong constraint is worse than a missing one — the next agent will
