@@ -133,7 +133,7 @@ sound while the panel and history window were separate implementations. Extracti
 `MeetingDetailView` dissolved it: a tab now appears in both surfaces automatically. Ask is a mode
 you stay in, not a control you press once.
 
-*Since re-scoped again — see PROGRESS.md, "Road to public, and to Ask": Ask is its own **global**
+*Since re-scoped again — see PROGRESS.md, "Ask — four decisions": Ask is its own **global**
 surface, with the per-meeting tab as the N=1 case. Still not built.*
 
 **F12 — Derive the meeting title and speaker names from notes + transcript.** Recording starts

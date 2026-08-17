@@ -18,28 +18,21 @@ one-line pointer here.
 
 ## Current state
 
-**Phase:** 1–6 built. **Distribution is done: the repo went public 2026-08-16 and v0.1.0 is
-installable by a stranger** — verified by an unauthenticated fetch of the release asset returning
-200, which is the only check that distinguishes "published" from "published to nobody". 7 (Ask)
-is next and still optional, rescoped as a global surface. The architecture-review pass closed
-2026-08-16 — see "The refactor pass" for what was done, what was declined, and the gap it left.
+**Phase:** 1–6 built. **v0.1.0 is shipped and fully verified** — public 2026-08-16, and the
+clean-Mac install worked 2026-08-17, which was the last thing that could still have invalidated the
+release. Nothing release-shaped is open; the amendment window is shut, so a change from here is
+0.1.1. Phase 7 (Ask) is next and still optional, rescoped as a global surface.
 
-**The amendment window is now shut.** v0.1.0 was re-cut three times on 2026-08-16 while the repo
-was private and downloads were 0, which made replacing the tag free; the last cut moved `v0.1.0`
-to `f3905d7` and clobbered the asset. From here a change is 0.1.1, not an amendment.
+**Next action: the three items that going public unblocked** — CI, a Homebrew cask, an update check.
+They are the worklist at the end of **[v0.1.0 — shipped, and closed](#v010--shipped-and-closed)**,
+which is the single place release state lives.
 
-**Next action: the clean-Mac verification.** It is the last thing that can still invalidate the
-release, and it is the only way to test the three paths this machine structurally cannot —
-Gatekeeper on a *downloaded* bundle with a quarantine flag, the model download (warm cache here),
-and a genuine first-permission prompt. After that, the three items going public unblocked: CI,
-a Homebrew cask, an update check.
+**Only debt of any size: the multi-speaker half of the R3 corpus**, which still gates calling Phase 2
+complete. The 1:1 leg is done and passed (2026-08-17).
 
-Full release state in **[The 0.1.0 release](#the-010-release--what-is-actually-left)**, which is
-the single place it lives. README and LICENSE landed 2026-08-16; the PLAN.md content question is
-closed (illustrative, checked 2026-08-16). The R3 corpus still runs in parallel and still gates
-Phase 2 — it is now the **only** carried debt of any size.
-
-*Docs were fully re-verified against the code on 2026-08-16 — AGENTS.md §0–§4 claim by claim.*
+*Docs re-verified against the code 2026-08-16 — AGENTS.md §0–§4 claim by claim. This file was
+trimmed 2026-08-17, folding the closed release sections into one; the two tables at the end are
+append-only and were not touched.*
 
 **What works end to end today** (174 tests): menubar record → two-track capture → Parakeet transcription →
 offline diarization + echo filter → `meeting.md` with marked regions → audio deleted → floating
@@ -54,14 +47,15 @@ camera-triggered "you aren't recording" notifications whose button starts one; a
 `Plume-0.1.0.zip` — on a repo that is now **public**, so the download link in the README works
 for someone who is not us.
 
-> ### ⚠️ Carried debt: Phase 2 is unverified on real multi-speaker audio
-> Every diarization and echo path is covered by synthetic unit tests only; the one real
-> recording had a single speaker. **Do not mark Phase 2 complete, and do not treat the
-> `expected_participants` default as settled, until the corpus below is recorded.** The 1:1
-> measurement in particular decides a default for the modal meeting. This survives phase
-> transitions on purpose — see "Human-dependent, start early".
+> ### ⚠️ Carried debt: Phase 2 is still unverified on *multi-speaker* audio
+> **The 1:1 leg is done** — a real two-person meeting on 2026-08-17 was correct end to end at the
+> default `expected_participants: 2`, so the modal meeting is evidence-backed rather than assumed.
+> What is still unverified is everything with more than two people in it: 3-person separation,
+> cross-talk over far-end speech, and a far end labelled S1/S2 are all synthetic-unit-test-only.
+> **Do not mark Phase 2 complete until those legs are recorded** — see "Human-dependent, start
+> early".
 
-**Blocked on:** nothing for building; the corpus and a real-call test need other people.
+**Blocked on:** nothing for building; the multi-speaker corpus needs other people.
 
 ---
 
@@ -73,27 +67,30 @@ git history if ever needed. What remains open:
 | Phase | Open |
 |---|---|
 | 1 — Fork and foundations | — (`SMAppService` login item done 2026-08-16, in Settings) |
-| 2 — Diarization and echo | **Verify on the R3 corpus.** Every multi-speaker path is unit-tested only. *Done when:* a 3-person call yields distinct speakers **and a 1:1 yields exactly one remote speaker** — the second is the one expected to fail |
+| 2 — Diarization and echo | **The 1:1 half is done (2026-08-17): a real two-person meeting yielded exactly one remote speaker at the default cap of 2** — the leg that was expected to fail. Open: a 3-person call yielding distinct speakers, plus the two echo legs. Every multi-speaker path is still unit-tested only |
 | 3 — Markdown + stage machine | — |
 | 4 — Summaries | — |
 | 5 — The panel | — (⌥⌘R global hotkey done 2026-08-16 via Carbon `RegisterEventHotKey`; see the decision below for why not `NSEvent`) |
 | 6 — History window | — |
-| 7 — Ask (optional, first to cut) | **Scope changed 2026-08-16: Ask is global, not per-meeting.** A tab is scoped to the selected meeting and global Ask has none, so it wants its own surface with the per-meeting tab as the N=1 case — retrieval, summaries-by-default and citation are decided in "Road to public, and to Ask" before any code |
+| 7 — Ask (optional, first to cut) | **Scope changed 2026-08-16: Ask is global, not per-meeting.** A tab is scoped to the selected meeting and global Ask has none, so it wants its own surface with the per-meeting tab as the N=1 case — retrieval, summaries-by-default and citation are decided in "Ask — four decisions" below, before any code |
 
 ---
 
 ## Human-dependent, start early
 
-- [ ] **Held-aside test corpus (R3).** Needs *real* meetings with real people, so it has a lead
+- [~] **Held-aside test corpus (R3).** Needs *real* meetings with real people, so it has a lead
       time no amount of coding compresses. Copy each `system.caf`/`mic.caf` somewhere outside
       `~/Meetings` before the audio is deleted. Each answers a specific question:
 
-  - [ ] **A 1:1 — the highest-value recording.** Settles whether threshold 0.7 over-splits one
-        voice: `plume diarize` it with `expected_participants: 0`. One speaker → drop the cap
-        and leave the diarizer unconstrained by default. Two+ → the cap is load-bearing and the
-        current default of 2 is correct. **This is the modal meeting; the default hinges on it.**
-  - [ ] **A 3-person call** — does it separate speakers correctly at `expected_participants: 3`,
-        and does it degrade to `them` (not mislabel) when left at the default 2?
+  - [x] **A 1:1 — done 2026-08-17, and it passed.** Exactly one remote speaker at the default
+        `expected_participants: 2`, correct transcript and summary — the leg the checklist expected
+        to fail. **Still unsettled:** whether threshold 0.7 over-splits when *uncapped*
+        (`expected_participants: 0`), which needs held-aside audio; this meeting's was deleted after
+        transcription (invariant 6). Now an optimisation rather than a risk — hold the audio next
+        time if you want to answer it.
+  - [ ] **A 3-person call — the highest-value recording left.** Does it separate speakers
+        correctly at `expected_participants: 3`, and does it degrade to `them` (not mislabel) when
+        left at the default 2?
   - [ ] **One recorded on speakers** — echo filter against genuine interjections *over* far-end
         speech. The 2026-08-14 recording proved echoes are dropped but contained no cross-talk,
         which is the half that could produce false positives.
@@ -102,10 +99,11 @@ git history if ever needed. What remains open:
 
 - [ ] **Verify quill#2 across a real call** (connect *and* disconnect). The mic track must come
       back full-length, not 1.7s. Only reachable with an actual call; guards against losing a
-      whole meeting.
+      whole meeting. **Not closed by the 2026-08-17 1:1** — that call produced a full-length mic
+      track, but no device was plugged or unplugged mid-recording, which is the whole test.
 
-R4 used to sit here too. It needed a decision, not other people, and that decision is now taken —
-see "Before the repo goes public". This section is only for what the calendar gates.
+R4 used to sit here too. It needed a decision, not other people, and that decision is taken — see
+its decision row. This section is only for what the calendar gates.
 
 ---
 
@@ -115,16 +113,11 @@ A read-only architecture review proposed thirteen fixes; the review itself was a
 deleted 2026-08-17 (in git history). What matters afterwards is the shape of the judgement, not
 the list:
 
-**Done** — the summary model no longer frozen at launch (`SummaryEngine` holds no client);
-invariant-1 write failures surfaced instead of `try?`'d; the two meeting surfaces' duplicated
-model logic extracted (`MeetingContent`, `NotesAutosave`, `MeetingDetailModel`'s extension);
-`TemplateStore` cached on file mtimes; one frontmatter splice; `summarize()` returns the renamed
-session; `Speaker.isRemoteLabel` and `Transcript.sorted` shared with their tests. The constraints
-each of these now carries are in AGENTS.md §4 — that is the durable record. 114 → 122 tests.
-*Extended 2026-08-16:* the mtime caching generalised — `Config`, `TemplateStore` and
-`VocabularyStore` had each grown their own cache struct and lock, and now share one
-`MTimeCache` (`de2a5f6`); see the decision row below for why it is keyed on the files' mtimes
-and not the directory's.
+**Done** — eight fixes, all of which now carry a constraint in **AGENTS.md §4, which is the durable
+record**: no client stored in `SummaryEngine`, invariant-1 write failures surfaced, the two meeting
+surfaces' model logic shared, one `MTimeCache` behind the three hand-edited stores, one frontmatter
+splice, `summarize()` returning the renamed session, and two helpers shared with their tests.
+114 → 122 tests.
 
 **Declined, with reasons worth keeping:**
 
@@ -139,179 +132,53 @@ and not the directory's.
   re-tokenisation, and the `h:mm:ss` triplication: real, small, and worth doing only when a change
   already opens those files.
 
-**Two carried gaps, both worth fixing before the thing they block:**
-
-1. **The refactor's UI paths have no automated coverage.** Summarize, the regenerate-failure
-   reload and speaker rename in both surfaces are model code no test reaches. One manual pass
-   through the `.app` is the cheapest close.
-2. ~~**`Config.path` and `TemplateStore.directory` are fixed global paths**~~ — **closed
-   2026-08-16.** Both are now overridable via `withPath` / `withDirectory`, implemented as
-   task-locals rather than locks (a lock is process-wide, and Swift Testing runs tests in
-   parallel — see the decision below). Both regression tests exist in `InjectablePathsTests`.
+**One carried gap** (the other, fixed global paths in `Config`/`TemplateStore`, closed 2026-08-16 —
+task-locals, `InjectablePathsTests`): **the refactored UI paths have no automated coverage.** The
+2026-08-17 1:1 walked the happy path through the real `.app`, so what nothing covers is the
+regenerate-**failure** reload and speaker rename/merge, in either surface.
 
 Also surfaced and *not* part of the refactor: PLAN R7 (lazy first-run model download) and R8 (no
 temp-file sweep). **Both closed 2026-08-16** — `ModelSetup` + the Setup & Checks window, and
-`TempSweep` at launch. See "Road to public" item 4.
+`TempSweep` at launch.
 
 ---
 
-## Road to public, and to Ask
+## v0.1.0 — shipped, and closed
 
-Agreed 2026-08-16. Ordered by **lead time and cost of being wrong**, not by size — the first two
-items are the only ones with an external dependency, so they start regardless of what else is in
-flight. Everything release-shaped below item 3 now lives in one place:
-**[The 0.1.0 release](#the-010-release--what-is-actually-left)**.
-
-**Start now, in parallel with everything else — these are the only items with an external
-dependency:**
-
-1. [x] **Developer ID Application certificate — obtained 2026-08-16.**
-       `Developer ID Application: SYLVAIN J R LAFITTE (324ZRWQHHV)`. The team id differs from
-       the development cert's (99VBSLFB4T); **notarization uses 324ZRWQHHV**. Private key
-       exported to `.p12` and stored 2026-08-16 — that backup is what stands between a lost
-       keychain and re-signing every future release with a different certificate, which would
-       reset permissions for everyone who installed this one. Developer ID certs are also
-       limited (5 per team), so they are not casually replaceable.
-2. [ ] **Record the R3 corpus** — already listed under "Human-dependent, start early". Needs
-       other people, so it is never faster than the calendar, and it is the last thing between
-       Phase 2 and done.
-
-**Then, in order:**
-
-3. [~] **Packaging and distribution.** *Signing landed 2026-08-16:* `build-app.sh` prefers
-       Developer ID over Apple Development over ad-hoc, signs **every** build with the Hardened
-       Runtime and `Resources/Plume.entitlements`, and `./build-app.sh release notarize`
-       re-signs with a secure timestamp → submits → staples → `spctl`-verifies → writes
-       `dist/Plume-<version>.zip` and its sha256. Bundle id is now
-       `io.github.sylvainlafitte.plume`. **First notarized artifact produced 2026-08-16**:
-       `dist/Plume-0.1.0.zip`, verified `stapler validate` OK and
-       `spctl → accepted, source=Notarized Developer ID`, secure timestamp present.
-       **Open: everything left is in [The 0.1.0 release](#the-010-release--what-is-actually-left)
-       below** — that section is the single place release state lives, so this item does not
-       drift against it.
-4. [x] **First-run experience (PLAN R7, R8) — done 2026-08-16.** What makes "installable on a new machine" true
-       rather than nominal. Model download is still lazy inside `ParakeetEngine.prepare()`, so
-       `SetupWindow` opens at launch when models are missing, with real progress from
-       FluidAudio's own download handlers (`AsrModels.download`, `OfflineDiarizerModels.load`)
-       behind `ModelSetup`; `doctor` points at it instead of promising a silent lazy download;
-       a "Finish setup…" menu item appears only while something is missing. `TempSweep` covers
-       R8. **Still unverifiable here** (warm FluidAudio cache, logged 2026-08-14) — the
-       download path itself wants the clean-Mac run.
-5. [~] **README, LICENSE, public prep.** *Both written 2026-08-16*, after 3–4 so the README
-       documents something that actually installs. `README.md` opens on the thing that is
-       actually distinctive — notes merged with the transcript, templates deciding the output
-       shape — then covers install, first run, on-disk layout, privacy, every config key,
-       troubleshooting and uninstall. `LICENSE` is MIT carrying both copyright lines plus a fork
-       note, with `LICENSE-quill` retained verbatim beside it. AGENTS.md now carries the rule
-       that keeps the README true: it is updated in the same commit as any user-visible change,
-       and three claims in it must never go stale (what leaves the machine, audio deletion,
-       anything listed as not-yet-built). *Closed 2026-08-16:* the two forward-looking links came
-       true when the repo went public — the Releases URL resolves and the install section's
-       notarized zip is attached to it, both confirmed by an unauthenticated fetch.
-6. [~] **Phase 1–6 leftovers.** *Done 2026-08-16:* injectable `Config.path` /
-       `TemplateStore.directory` (as **task-locals**, not locks — see the decision below) and
-       the two regression tests they blocked; `LoginItem` (`SMAppService.mainApp`) and the
-       ⌥⌘R global hotkey (`GlobalHotkey`, Carbon), both in Settings. **Open:** the manual
-       `.app` pass over the refactored UI paths — summarize, regenerate-failure reload and
-       speaker rename in both surfaces.
-7. [ ] **Ask** — design notes below.
-8. [x] **Call detection — done 2026-08-16, camera-triggered.** Detection is
-       `CameraWatch` polls `kCMIODevicePropertyDeviceIsRunningSomewhere`; off by default
-       (`call_detection`), notification plus a menu-bar line, never starts a recording.
-
-### The 0.1.0 release — what is actually left
-
-*State as of 2026-08-16, each line established by running the command, not by reading the
-previous version of this list — which had two items open that were never true (both marked ✗).*
-
-**Shipped, public and verified.** `v0.1.0` is tagged on **`f3905d7`** (moved there by the final
-re-cut; it was `84766d8`, then `de2a5f6`), pushed, and published at
+`v0.1.0` is tagged on **`f3905d7`**, published at
 [releases/tag/v0.1.0](https://github.com/sylvainlafitte/Plume/releases/tag/v0.1.0) with
-`Plume-0.1.0.zip` attached — `sha256 cb7d24b4…`, `CFBundleVersion 42`.
+`Plume-0.1.0.zip` attached (`CFBundleVersion 42`). **Verified three ways, each catching what the
+previous one passes:** notarization green → the asset *downloaded back* and re-checked (sha256,
+`spctl`, `stapler`, entitlement) → **that download installed on a second Mac, 2026-08-17**, which
+is the only way to reach Gatekeeper-on-quarantine, a cold model download and a real first-permission
+prompt. Why each link is needed is in the decision rows for 2026-08-16 and 2026-08-17; the standing
+mechanics live in AGENTS.md §3.
 
-- [x] **The artifact was rebuilt first, and it is the right binary.** The previous zip was built
-      at 13:34, *before* `92ede9a` (14:44) added `GlobalHotkey`, `LoginItem`, `SetupWindow`,
-      `CameraWatch`, `Log` and `TempSweep` — 1,600 lines, most of the first-run experience the
-      README describes. It verified perfectly and was still the wrong binary, which is the whole
-      lesson: **every Gatekeeper check passes on a stale build.** Rebuilt 15:26 and confirmed by
-      `strings` on the shipped binary (`GlobalHotkey`, `LoginItem`, `SetupWindow`, `CameraWatch`,
-      `ModelSetup` all present).
-- [x] **Verified by downloading the published asset back**, not by trusting the local file.
-      sha256 `14409d9f…` matches `dist/` byte for byte; `spctl → accepted,
-      source=Notarized Developer ID`; `stapler validate` OK; `flags=0x10000(runtime)`; secure
-      timestamp 15:25:57; `com.apple.security.device.audio-input` present.
-- [x] **Nothing was fired at upstream** — `gh release list --repo digimata/quill` is empty. The
-      `--repo` flag did its job; see the trap below for why it is not optional.
-- [x] Signing and notarization work end to end; the `plume-notary` keychain profile already
-      existed. ✗ There was never any credential setup left to do.
-- [x] 174 tests pass on HEAD.
-- [x] ✗ The repo was already clean to publish — see the one-way-door list below.
-- [x] **The repo is public — done 2026-08-16**, and checked the way that actually settles it: an
-      **unauthenticated** `curl` of the release asset returns 200, and so does the repo page.
-      `gh repo view` answering happily proves nothing here, because `gh` is authenticated as the
-      owner — which is exactly how "published to nobody" survived a whole day looking shipped.
+Everything on the road to public is done: Developer ID signing and notarization, the first-run
+Setup & Checks window (PLAN R7) and `TempSweep` (R8), README, LICENSE and `NOTICE`, the app icon,
+build-stamped `CFBundleVersion`, CHANGELOG, format versioning, the login item, ⌥⌘R, camera-triggered
+call detection (R4 as the indicator alone), repo metadata — and the repo itself. Each has a decision
+row below or a section in AGENTS.md; nothing release-shaped is open.
 
-**Still open:**
+**Three things from that work that are still live liabilities, not history:**
 
-1. [ ] **The clean-Mac verification.** Still outstanding, and still the only way to test
-       Gatekeeper on a *downloaded* bundle with a quarantine flag, the model download (warm
-       FluidAudio cache here since 2026-08-14) and a genuine first-permission prompt. Run
-       Settings ▸ Run Diagnostics there — the Hardened Runtime denies the microphone silently if
-       the entitlement is wrong (invariant 5).
+- **The Developer ID private key.** `Developer ID Application: SYLVAIN J R LAFITTE (324ZRWQHHV)`,
+  exported to `.p12` and stored 2026-08-16. That backup is what stands between a lost keychain and
+  re-signing every future release with a *different* certificate, which resets TCC permissions for
+  everyone who installed this one. Developer ID certs are also capped at 5 per team. Note the
+  notarization team id (324ZRWQHHV) is **not** the development cert's (99VBSLFB4T).
+- **The `/Applications` copy is never the release.** `notarize` stages in `/tmp` and never installs,
+  so `spctl` on the installed bundle proves nothing about the zip. Check the zip — preferably the
+  one downloaded back from the release.
+- **`gh` with no `--repo` resolves to `digimata/quill`**, because `upstream` is a remote here. Also
+  in AGENTS.md §5, since it recurs on every release.
 
-**Two traps, both found by running the commands rather than reading them:**
+**The amendment window is shut.** v0.1.0 was re-cut three times on 2026-08-16 — icon,
+`CFBundleVersion`, CHANGELOG, format versioning, the MTimeCache consolidation — which was free only
+because the repo was still private and downloads were 0. It shut when the repo went public the same
+day. Anything from here is 0.1.1.
 
-- **`gh` with no `--repo` resolves to `digimata/quill`.** `upstream` is a remote in this clone,
-  and `gh repo view` returned *quill's* description and visibility. Every `gh release`/`issue`/`pr`
-  needs `--repo sylvainlafitte/Plume` spelled out. Now also in AGENTS.md §5, since it recurs on
-  every release.
-- **The `/Applications` copy is never the release.** `notarize` stages in `/tmp` by design and
-  never installs, so `spctl` on the installed bundle proves nothing about the zip. Check the zip —
-  and preferably the zip *downloaded back from the release*, which is what actually ships.
-
-**The amendment window — used, and now closed for real.** The tag existed, so these would
-ordinarily have been 0.1.1 material. They were not, because downloads were 0 and the repo was
-private, which made replacing the tag free. **v0.1.0 was re-cut on 2026-08-16** with all of them
-in — three times in the end, the last carrying the MTimeCache consolidation and a round of UI
-tweaks, each time moving the tag and clobbering the asset. **The window shut when the repo went
-public the same day.** Anything from here is 0.1.1.
-
-- [x] **App icon — done 2026-08-16.** `Resources/AppIcon.icns` plus `CFBundleIconFile`, staged by
-      `build-app.sh`, generated by `Resources/icon/make-icon.swift` so it can be regenerated
-      rather than only edited. The first v0.1.0 shipped without one; this is what the re-cut was
-      for.
-- [x] **`CFBundleVersion` — stamped by the build, done 2026-08-16.**
-      `git rev-list --count HEAD` via PlistBuddy into the *staged* plist, so the repo keeps only
-      the hand-set `CFBundleShortVersionString`. It shipped as `1` in v0.1.0 and nothing caught
-      it, because **codesign, notarization and Gatekeeper are all indifferent to it** — the
-      failure would have surfaced much later as LaunchServices declining to see an update as
-      newer. Monotonic by construction, no state file, no release-time discipline. First stamped
-      value: 36; v0.1.0 finally shipped at **42**. The gap is the point — three re-cuts moved it
-      without anyone maintaining a number.
-- [x] **CHANGELOG.md — written 2026-08-16.** Keep a Changelog / SemVer, with the 0.1.0 entry
-      reconstructed and an Unreleased section. Notes it that `CFBundleVersion` is a build number
-      and not a release number, since the two are now visibly different.
-- [x] **Format versioning — done 2026-08-16.** `meeting.md` already stamped `plume: 1` and
-      nothing read it; now `MeetingDocument.formatVersion` + `checkWritable` on every write path,
-      and `SessionState.version` + `isReadableByThisVersion` gating `isReadyForWork`. **Tolerance
-      runs one way only** — older and missing are fine, newer is refused — because the failure
-      is asymmetric: not acting is always recoverable, and the first thing done to a `recorded`
-      session is transcribing it and deleting the audio (invariant 6). 9 new tests.
-- [x] **R4 — closed 2026-08-16, and closed *smaller* than PLAN asked.** The visible recording
-      indicator is the whole remedy. The paste-a-line half was built and removed the same day:
-      how to obtain consent is the user's problem, and a canned sentence is redundant to anyone
-      who knows their obligations and falsely reassuring to anyone who doesn't. See the decision
-      row below; **not** an open item.
-- [~] **Repo metadata** — description and 10 topics set 2026-08-16; `NOTICE` written and pushed,
-      so `LICENSE` is now the MIT text plus the two copyright lines and nothing else. **Still not
-      detected as MIT** as of going public (`licenseInfo` is null). Detection may simply not have
-      re-run — re-check before doing anything about it. If it persists, the remaining suspect is
-      the *second* copyright line (Andrew Jones's), which whole-file matching may not normalise
-      away; note that moving it out of LICENSE would weaken the attribution it was deliberately
-      put there for, so that is a trade to take consciously rather than a fix to apply.
-
-**Unblocked by going public, not by the tag — and as of 2026-08-16 they are actually unblocked,
-so this is the live worklist once the clean-Mac run is done:**
+**The live worklist, unblocked by going public rather than by the tag:**
 
 - [ ] **CI** — a GitHub Action running `swift test` on a macOS runner. 174 tests only stay honest
       if a contributor's PR runs them, and contributors are now possible.
@@ -321,53 +188,27 @@ so this is the live worklist once the clean-Mac run is done:**
       API that opens the release page. An appcast, an EdDSA key and a self-updating signed app
       are real machinery for a project whose users can re-run brew.
 
-**Closed along the way, 2026-08-16:** bundle id `io.github.sylvainlafitte.plume`; `0.1.0`
-confirmed as the first public number; the app log story (`~/Library/Logs/Plume/plume.log`,
-rotates once at 1 MB, surfaced in Settings ▸ Troubleshooting); LICENSE; README; the
-`SMAppService` login item, which was install UX rather than a Phase 1 leftover.
+**Two findings from the pre-public audit, recorded rather than deleted** — both are the kind of
+belief that gets re-derived from a stale note:
 
-### Before the repo goes public — one-way door
+- **The spike `.app` bundles were never committed** (checked 2026-08-16). This had stood as an open
+  item, "remove the committed binaries carrying our signing identity", and no such commit exists:
+  `.gitignore` has carried `*.app/` since the first commit, and `git log --all -- 'spikes/**/*.app*'`
+  is empty. The 350 MB in `spikes/` is untracked build output. Same pass: no `.DS_Store`, no tracked
+  `.caf`/`.wav`/`.rttm`, `.git` is 3.2 MB — history holds nothing publishing would expose.
+- **`docs/PLAN.md` carries no real meeting content** (checked 2026-08-16) — every name and utterance
+  in it was invented, and it says so. The one place real ASR output survives anywhere in the docs is
+  the echo decision row below (`"chatbot"/"chat bot"`, `"Kodi"/"Cody"`,
+  `"trading files"/"creating files"`, from a self-recording): kept deliberately, because they are the
+  evidence that string equality cannot work, they name no person, and paraphrasing them would destroy
+  the point they prove. **Re-check this if any future decision quotes a real meeting** — that is the
+  line, not the fact of quoting ASR.
 
-- [x] ✗ **The spike `.app` bundles were never committed — checked 2026-08-16, item withdrawn.**
-      It had stood as "remove the committed binaries carrying our signing identity", and no such
-      commit exists: `.gitignore` has carried `*.app/` from the first commit, `git ls-files
-      spikes` lists 17 source files and no bundle, and `git log --all -- 'spikes/**/*.app*'` is
-      empty. The 350 MB in `spikes/panel/` and `spikes/responsible-process/` is untracked local
-      build output. Also confirmed in the same pass: no `.DS_Store`, no `.caf`/`.wav`/`.rttm`
-      tracked, and `.git` is 3.2 MB — so history holds nothing that publishing would expose.
-      **Recorded rather than deleted**, because "we have committed signed binaries" is exactly
-      the kind of belief that gets re-derived from a stale note.
-- [x] **Checked 2026-08-16: `docs/PLAN.md` carries no real meeting content.** Every name, title
-      and utterance in it was invented as an illustration; the two transcript-shaped samples are
-      now angle-bracket placeholders, and the header states outright that all examples are
-      fiction. The one place real ASR output survives anywhere in the docs is the echo decision
-      row below — the fragments `"chatbot"/"chat bot"`, `"Kodi"/"Cody"`,
-      `"trading files"/"creating files"`, from a self-recorded test. Kept deliberately: they are
-      the evidence that string equality cannot work, they name no person and disclose nothing,
-      and paraphrasing them would destroy the point they prove. **Re-check this if any future
-      decision quotes a real meeting** — that is the line, not the fact of quoting ASR.
-- [x] **LICENSE: MIT, retaining quill's copyright — done 2026-08-16.** `LICENSE` carries both
-      copyright lines (ours and Andrew Jones's) over the standard MIT text, then a fork note
-      naming the upstream repo; `LICENSE-quill` stays beside it, verbatim and untouched. Keeping
-      the upstream notice is an obligation of the licence, not a courtesy — which is why the
-      copyright line is in the main file rather than only in the retained one.
-- [x] **R4 — closed 2026-08-16 as the indicator alone.** No disclosure helper ships: the one
-      that was built got removed the same day, because consent is jurisdictional and situational
-      and an app-supplied sentence would reassure without helping. AGENTS.md §2 carries the
-      standing version.
-- [x] **README — written 2026-08-16.** States what it is, install (release zip and
-      `build-app.sh`), the dependencies and their disk cost, what each permission is for and why
-      the capture check exists, **what leaves the machine** (localhost Ollama, plus the one-time
-      model download from Hugging Face), that audio is deleted after transcription, where data
-      lives, and what uninstall does and does not remove (`~/Meetings` deliberately stays).
-      Two links are ahead of reality until the repo is public: the Releases URL needs a tagged
-      release, and the install section assumes the notarized zip is attached to it.
+---
 
-*A separate "Also missing, raised 2026-08-16" list stood here — icon, `CFBundleVersion`, format
-versioning, CI, bundle id, version, the log story. Folded into "The 0.1.0 release" above
-2026-08-16: release state was living in three places and had already gone stale in one of them.*
+## Ask — four decisions to take before writing code
 
-### Ask — four decisions to take before writing code
+Phase 7, not built. These are decided; the code is not.
 
 - **A new surface, not the third tab.** This *reverses* the 2026-08-15 decision below, which
   itself reversed PLAN F11 — record it as such when it happens. The reason: a tab is scoped to
@@ -385,31 +226,6 @@ versioning, CI, bundle id, version, the log story. Folded into "The 0.1.0 releas
 
 ---
 
-## Backlog — raised, thought through, not built
-
-Ideas with enough analysis attached that picking one up doesn't start from zero. Each says
-what makes it non-trivial, because none of these are as small as they look.
-
-- [x] **Rename and delete a meeting. Done 2026-08-15.** Both in `MeetingAdmin`, reachable from a
-      row context menu and an ellipsis menu in the detail header. Rename writes the title *and*
-      `title_source: user`, moves the folder to `<stamp>-<slug>`, and disambiguates a slug
-      collision (`-2`) rather than merging into an existing folder; the `yyyy-MM-dd-HHmm` prefix
-      is preserved because the list sorts on it and renamed sessions are located by matching it.
-      Auto-titling now **skips any meeting carrying the marker** — invariant 3 applied to titles,
-      without which the next Regenerate would silently undo the rename. Delete goes to the Trash
-      via `FileManager.trashItem` behind a confirmation naming the meeting, and selects the
-      neighbour rather than jumping to the top. 7 new tests. **Open in editor / Reveal in Finder
-      moved into the same menu**: none of the four is why the window exists — reading and
-      regenerating a summary are — so the header keeps the title and one `⋯` menu, and one
-      builder backs both the header menu and the row context menu so they can't diverge.
-
-- [x] **Show the summary model / Ollama status next to Summarize. Done 2026-08-15.** A caption
-      in `summarizeBar`: the model name when it's installed and reachable, orange
-      "Ollama isn't running" / "<model> not installed" when it isn't. Probed once per appearance
-      via `.task`, not per keystroke. Lives in the shared `MeetingDetailView`, so the panel and
-      the history window both got it. Turns a post-press error into a precondition — and a cold
-      daemon is a normal first-run state, not a fault.
-
 ## Decisions made during implementation
 
 Append here as you go. Format: date, what was decided, and **why** — especially if it differs
@@ -417,14 +233,15 @@ from PLAN.md, in which case update PLAN.md too and say so.
 
 | Date | Decision | Why |
 |---|---|---|
-| 2026-08-16 | **The repo is public, and "published" is only proven by an *unauthenticated* fetch** | The release had looked shipped for a day — tagged, notarized, asset attached, every command returning success — while returning 404 to everyone on earth except the owner. Nothing in the release path notices, for the same structural reason the stale-binary trap exists: `gh` is authenticated as us, so `gh release view` and `gh repo view` answer happily from inside the only account that can see it. The check that settles it is `curl` with no credentials against both the repo page and the asset URL — 200 and 200. Recorded because the next release will feel like the tag and the green notarization are the finish line, and they are not: **the finish line is a stranger's `curl`.** Note this is a one-way door, taken deliberately after the "Before the repo goes public" list was fully closed |
+| 2026-08-17 | **`expected_participants: 2` is now a measured default, not a reasoned one — and the release is verified on a machine that isn't this one** | Two things closed on the same day, and they are the two that no amount of coding could have closed. (1) A real 1:1 produced **exactly one remote speaker** at the default cap, plus a correct transcript and summary. That is the leg the phase checklist openly expected to fail — threshold 0.7 is tuned on 4-speaker AMI material with an anti-merge bias, whose characteristic error is splitting one voice — so the cap is doing exactly the job it was added for on the modal meeting. Note what is *not* answered: whether 0.7 over-splits when uncapped (`expected_participants: 0`) still needs held-aside audio, and this meeting's was deleted after transcription by design. That question is now an optimisation ("could we drop the cap?") rather than a risk ("is the default wrong?"). (2) Installing the published zip on a **second Mac** exercised the three paths this dev machine structurally cannot: Gatekeeper against a downloaded, quarantined bundle; a genuinely cold FluidAudio download; and a first-permission prompt. All passed. The pattern worth keeping is the chain — notarize, then download the asset *back*, then install that download **elsewhere**. Each link catches a failure the previous one passes: green notarization passed a stale binary, and a local install passes a bundle nobody else could fetch |
+| 2026-08-16 | **The repo is public, and "published" is only proven by an *unauthenticated* fetch** | The release had looked shipped for a day — tagged, notarized, asset attached, every command returning success — while returning 404 to everyone on earth except the owner. Nothing in the release path notices, for the same structural reason the stale-binary trap exists: `gh` is authenticated as us, so `gh release view` and `gh repo view` answer happily from inside the only account that can see it. The check that settles it is `curl` with no credentials against both the repo page and the asset URL — 200 and 200. Recorded because the next release will feel like the tag and the green notarization are the finish line, and they are not: **the finish line is a stranger's `curl`.** Note this is a one-way door, taken deliberately after the pre-public audit list was fully closed (its two surviving findings are in the v0.1.0 section) |
 | 2026-08-16 | **The three hand-edited stores share one `MTimeCache`, keyed on the files' mtimes and never the directory's** | `Config`, `TemplateStore` and `VocabularyStore` had each grown a private cache struct, its own lock and the same check-compute-store dance. They cache for one shared reason — these files exist to be **hand-edited**, so a stale read is indistinguishable from the feature being broken, while an uncached read is a stat plus a parse on a path hot enough to matter (`TemplateStore.all()` runs inside `MeetingDetailView.body`, i.e. once per keystroke). One mechanism, one place to get the subtle part right: the fingerprint is the *files'* modification dates, because a **directory's** mtime moves only when an entry is added or removed — a directory-keyed cache would ignore the in-place edit that is the entire premise of the templates folder. Two details that are easy to lose: `compute()` runs outside the lock and the fingerprint is re-read *after* it, since computing can create the very files being fingerprinted (`TemplateStore` seeds on first read, and storing the pre-seed fingerprint would miss on every later call); and a nil fingerprint means "unreadable — compute but don't cache", not "empty" |
 | 2026-08-16 | **Format tolerance runs one way only: older and missing are read, newer is refused** | `meeting.md` had stamped `plume: 1` since the first document and nothing ever read it — a version field that is written but never checked is not versioning, it is decoration. Now `MeetingDocument.checkWritable` guards every write path and `SessionState.isReadableByThisVersion` gates `isReadyForWork`. The asymmetry is the whole design and it follows from invariant 6: refusing to act is always recoverable — the user updates Plume, or edits the file by hand — whereas acting on a format we are guessing at means rewriting a document whose audio is already deleted, or transcribing a session and deleting audio a newer build was still managing. Missing is tolerated as current for the same reason `machine` is `String?`: files that predate the field must not be stranded. Bump only when a change would make *this* build misread a newer file; a key older builds ignore is what optionals already handle. The subtle write path is `SpeakerEditing.apply`, which composes `replacing` + `write` itself and so needed its own check — a guard on `updateRegion` alone would have missed it |
 | 2026-08-16 | **R4 is answered by the recording indicator alone. The disclosure helper was built and removed the same day** | PLAN R4 asked for two things — a visible indicator, and "a one-line disclosure to paste into chat". The first shipped in Phase 1. The second was built (a Disclosure button copying a configurable `disclosure_text`) and then removed on the owner's call, which is the right one: **how to obtain consent is the user's problem, and a canned sentence cannot help with it.** Consent law is both jurisdictional and situational — recording a private conversation without the participants' knowledge is a criminal offence in France (Code pénal art. 226-1) and in the US two-party-consent states, and whether *notice* suffices or *consent* is required depends on where every participant is sitting, not where the app is. So the feature splits its audience badly: redundant for anyone who already knows their obligations, and *falsely reassuring* for anyone who doesn't — a button labelled "Disclosure" implies the app has handled something it hasn't. Falsely reassuring is the failure that matters, and it is not fixable by better default wording. What remains is the honest half: the indicator tells you that you are recording, the README says to follow the law where you are, and Plume claims nothing further. Don't re-add it — the config key, the button and its tests were all live and are gone deliberately |
 | 2026-08-16 | **`CFBundleVersion` is stamped from the commit count at build time** | It shipped as `1` in v0.1.0 and would have stayed `1` forever. Nothing in the release path objects: codesign, notarization, stapling and Gatekeeper are all indifferent to `CFBundleVersion`, so the only symptom arrives later and somewhere else — LaunchServices declining to treat a newer build as newer, and the planned update check having nothing to compare. `git rev-list --count HEAD` is monotonic by construction, needs no state file and no discipline at release time, and is applied by PlistBuddy to the *staged* plist so the repo's `Info.plist` keeps only the hand-set user-facing version. Skipped when git can't answer, so a source tarball still builds |
 | 2026-08-16 | **The fork note moved out of LICENSE into a new `NOTICE`** | GitHub reported the project as licensed "Other" rather than MIT. Its detection matches the *whole file*, and LICENSE carried a trailing paragraph about the Quill fork — deliberately placed there on 2026-08-16 so the attribution could not be missed. That reasoning is intact and the obligation is still met: both copyright lines stay in LICENSE, `LICENSE-quill` stays verbatim, and `NOTICE` carries the fork note with the README linking it. What changed is only that LICENSE is now the MIT text and nothing else, which is the one shape the detector accepts. Reverses the placement, not the principle |
 | 2026-08-16 | **v0.1.0 published, and a release is verified by downloading the asset back — never by trusting the local file** | Two failure modes this catches, one of which had already happened. First: the zip in `dist/` was four hours stale, missing `GlobalHotkey`, `LoginItem`, `SetupWindow`, `CameraWatch` and `ModelSetup` — 1,600 lines, most of the first-run experience — and it passed `spctl`, `stapler validate` and `codesign` perfectly, because **every Gatekeeper check passes on a stale build**. Nothing in the signing toolchain has an opinion about whether the binary is current; only a `strings`/hash check against the tagged commit does. Second: the upload itself is unverified until it round-trips — `gh release download` then sha256, `spctl`, `stapler`, and the entitlement. Both are cheap and neither is implied by a green notarization. Recorded because the next release will feel like it needs neither |
-| 2026-08-16 | **Release state consolidated into one section, after two open checklist items turned out to be false** | "Remove the committed spike `.app` bundles" and an implied notarization-credential setup had both been sitting open; running the commands showed the bundles were never committed (`*.app/` gitignored from the first commit) and the `plume-notary` keychain profile already resolves. Neither was ever true — they were written from what the repo *probably* looked like. Both are now recorded as withdrawn **with the command that settles them**, rather than deleted, since a stale open item is re-derived the moment someone reads the old note again. The structural cause was duplication: release state lived in three sections ("Packaging and distribution", "Before the repo goes public", "Also missing"), so no single one was ever fully true. One section now owns it and the others point at it |
+| 2026-08-16 | **Release state consolidated into one section, after two open checklist items turned out to be false** | "Remove the committed spike `.app` bundles" and an implied notarization-credential setup had both been sitting open; running the commands showed the bundles were never committed (`*.app/` gitignored from the first commit) and the `plume-notary` keychain profile already resolves. Neither was ever true — they were written from what the repo *probably* looked like. Both are now recorded as withdrawn **with the command that settles them**, rather than deleted, since a stale open item is re-derived the moment someone reads the old note again. The structural cause was duplication: release state lived in three sections ("Packaging and distribution", "Before the repo goes public", "Also missing"), so no single one was ever fully true. One section owns it; the duplicates were folded in and, once the release closed, trimmed away (2026-08-17) |
 | 2026-08-14 | Scaffolding: git + upstream remote, AGENTS.md, this file, `spikes/`, `.gitignore` | Multi-agent work across sessions needs revert-ability and a durable memory outside any one session |
 | 2026-08-14 | **`.app` bundle confirmed as the packaging approach** (PLAN.md Phase 1 stands) | Spike A measured it rather than assuming: LaunchServices makes the app its own TCC responsible process. quill#54 still reproduces exactly on macOS 26.5.1 |
 | 2026-08-14 | Build script must `xattr -cr` the assembled `.app` before `codesign` | SwiftPM's build dir carries `com.apple.provenance`; codesign rejects it as "resource fork, Finder information, or similar detritus". Will recur in the real Phase 1 build |
@@ -455,6 +272,8 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | 2026-08-16 | **Notes guidance strengthened beyond the conflict rule, and it lives in `Prompt`, not the templates** | The single instruction ("where they conflict with the transcript, prefer the notes") fired only on contradiction, so a model that found none had nothing left to follow and could legitimately ignore the notes. Now four rules: conflict, *spelling* of names/jargon (ASR renders unfamiliar words phonetically, the attendee doesn't), notes-only content is real content and must survive, and what someone stopped to type is a weighting signal — closed with an explicit "none of this licenses invention" so it cannot fight the templates' no-invention rule. Kept in `Prompt` because it reaches every summary including hand-written templates, whereas `seedIfNeeded` never overwrites an existing file, so a seed edit reaches only installs that have never run. **Still open:** `Prompt.window` does not see the notes, so the compression stage that decides what to discard is blind to what the attendee cared about — a real gap, but fixing it spends context in every window and wants measuring first |
 | 2026-08-16 | **Check the installed binary's timestamp before trusting a UI repro.** The first report that the new anchoring "still goes top-right" was a stale `/Applications/Plume.app` — the panel change had never been built into it | Costly failure mode, because a stale bundle reproduces the *old* bug perfectly and every explanation you invent for it is plausible. `ls -la /Applications/Plume.app/Contents/MacOS/plume` against the last commit time settles it in one command, and is now the first step before instrumenting any panel behaviour. The temporary `os_log` tracing added to diagnose it was removed once the rebuild confirmed the fix |
 | 2026-08-16 | **Removed the "N without a summary" counters** (menu bar idle label, Meetings footer) and the `transcript ready` notification | Both told you something the surface you were already looking at was showing. The counters also cost a background rescan of every meeting folder on each history open, panel finish and stop — `AppState.pendingCount` and `AppController.refreshPending()` are gone with them. The per-row `no summary` capsule stays: it is per-meeting, which the counters were not. Failure notifications all stay — those fire when nothing on screen would tell you |
+| 2026-08-15 | **Rename and delete a meeting; the four folder-level actions all live in one `⋯` menu** | Rename writes the title *and* `title_source: user`, and auto-titling then **skips any meeting carrying the marker** — invariant 3 applied to titles, without which the next Regenerate would silently undo the rename. The `yyyy-MM-dd-HHmm` prefix is preserved because the list sorts on it; a slug collision gets `-2` rather than merging into an existing folder. Delete goes to the **Trash** behind a confirmation naming the meeting, and selects the neighbour rather than jumping to the top. Rename, delete, Open in editor and Reveal in Finder share one menu because none of the four is why the window exists — reading and regenerating a summary are — and one builder backs both the header menu and the row context menu so they cannot diverge |
+| 2026-08-15 | **The summary model / Ollama status sits beside Summarize** | It turns a post-press error into a **precondition**: the model name when it is installed and reachable, orange "Ollama isn't running" / "<model> not installed" when it is not. A cold daemon is a normal first-run state rather than a fault, so finding out by pressing the button is the wrong order. Probed once per appearance via `.task`, never per keystroke, and it lives in the shared `MeetingDetailView` so both surfaces have it |
 | 2026-08-15 | The recording panel calls `makeKey()` without `NSApp.activate` | `@FocusState` can only focus something in the key window, so the notes field could never take focus on appear. A non-activating panel can hold key while the call stays frontmost — that is what utility panels are for |
 | 2026-08-15 | **Ask will be a third tab, not a row under the summary** (reverses PLAN.md F11) | F11's objection to a tab was that it would live only in the post-call panel and so be in the wrong place for old meetings. Sharing `MeetingDetailView` between the panel and history dissolved that — a tab now appears in both. A tab is also the right shape: Ask is a mode you stay in, not a control you press once. And it leaves the bottom edge to the summarize bar rather than two controls competing |
 | 2026-08-15 | **Summarize pinned below the tabs; each surface picks its own opening tab** | Inside the Notes tab, the default tab decided whether the action was reachable at all. Pinned below, it is always available, so the default can just follow purpose: panel = writing (Notes), history = reading (Summary). Fixed per surface, never per meeting — a per-meeting default would make the tab jump as you scroll the list |
@@ -467,7 +286,7 @@ from PLAN.md, in which case update PLAN.md too and say so.
 | 2026-08-15 | `RecordingSession` is now `@MainActor` rather than carrying an unchecked capture | The watchdog timer's `@Sendable` block captured a non-Sendable `self`. The class is *already* main-isolated in practice (only `AppController` touches it; the timer fires on the main run loop), so declaring it makes the class implicitly Sendable — stating the truth instead of asserting past it. Audio threads live a level down in the recorders, which own their own locks |
 | 2026-08-15 | Silent far-end track logs "no speech", not "diarization failed" | `OfflineDiarizationError.noSpeechDetected` is the normal result for a headphones meeting or a call nobody has joined. Zero turns is the honest answer; the old wording put an alarming line in the log for a healthy run |
 | 2026-08-14 | Documented all three `@unchecked Sendable` uses; `MicRecorder`'s is inherited debt, not justified | Writing "there is exactly one" in AGENTS.md and then grepping found three. quill#18 locked the racing *fields* but left the class-level conformance, so the debt is partially discharged, not removed — and the file claimed otherwise. Removing it is open work |
-| 2026-08-14 | **`expected_participants`, default 2, caps far-end speakers** instead of retuning the threshold | 1:1s are the modal meeting, and threshold 0.7 is tuned on 4-speaker AMI material with a deliberate anti-merge bias — its characteristic error on a two-person call is splitting one voice. Lowering the threshold would trade that against under-splitting group calls, which is the *worse* error (conflating two real people is unrecoverable; over-splitting is one merge click). The speaker cap avoids the trade: N participants ⇒ N−1 far-end speakers, a number known in advance. **Open:** whether 0.7 actually over-splits a real 1:1 — if not, uncapped becomes the better default |
+| 2026-08-14 | **`expected_participants`, default 2, caps far-end speakers** instead of retuning the threshold | 1:1s are the modal meeting, and threshold 0.7 is tuned on 4-speaker AMI material with a deliberate anti-merge bias — its characteristic error on a two-person call is splitting one voice. Lowering the threshold would trade that against under-splitting group calls, which is the *worse* error (conflating two real people is unrecoverable; over-splitting is one merge click). The speaker cap avoids the trade: N participants ⇒ N−1 far-end speakers, a number known in advance. **Updated 2026-08-17:** a real 1:1 came out correct at the default, so the cap is confirmed harmless where it matters most. Whether 0.7 would over-split *without* it is still unmeasured and now only an optimisation — see the 2026-08-17 row |
 | 2026-08-14 | **Phase 2 verified on the echoed recording: 7 → 4 segments, all 3 mic duplicates dropped, no genuine speech lost.** Diarizer found 1 speaker and correctly kept `them` rather than inventing `S1` | End-to-end proof of the diarize → attribute → echo-filter chain. Note the multi-speaker path is still only covered by unit tests |
 | 2026-08-14 | **quill#25 needed the same kind of fix as #2/#18: it hardcodes the far-end speaker as `"them"`**, which was right before diarization and wrong after — S1/S2 echoes would have passed straight through | Generalised to "any non-mic speaker". Second instance of upstream PRs being mutually unaware; assume it for every remaining cherry-pick |
 | 2026-08-14 | **Merging quill#2 into quill#18 required a fix neither PR had.** #2 adds `lastBufferAt`, written from the tap thread and read on main; #18 is the PR that exists to lock exactly that class of state. Written independently, so upstream's #2 reintroduces the race #18 removes | `lastBufferAt` now lives inside `LockedState` alongside `file` and `firstBufferAt`. Worth remembering when taking further upstream PRs: they are mutually unaware, and combining two correct patches can still yield a broken result |
