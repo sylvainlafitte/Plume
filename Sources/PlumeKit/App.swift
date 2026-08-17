@@ -188,7 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // inside the first transcription, i.e. after a real meeting, with no
         // progress and no way to tell slow from broken.
         if SetupWindowController.isNeeded {
-            controller.showSetup()
+            controller.showSetup(firstRun: true)
         }
 
         Log.write("plume up · meetings → \(root.path)")
@@ -288,6 +288,7 @@ final class AppController {
         updates.startIfEnabled()
         updateWatch = updates
 
+        state.setupNeeded = SetupWindowController.isNeeded
         observeState()
 
         Task { [transcription, root, state] in
@@ -362,7 +363,12 @@ final class AppController {
 
     /// Surfaced so `applicationDidFinishLaunching` can open setup without
     /// reaching into the controller's windows.
-    func showSetup() { setupWindow.show(root: root) }
+    func showSetup(firstRun: Bool = false) {
+        setupWindow.onReadinessChanged = { [weak self] needed in
+            self?.state.setupNeeded = needed
+        }
+        setupWindow.show(root: root, firstRun: firstRun)
+    }
 
     func stopSessionIfRecording() {
         guard session != nil else { return }

@@ -27,17 +27,34 @@ import SwiftUI
 @MainActor
 final class SetupWindowController {
     private var window: NSWindow?
+    private var hosting: NSHostingController<SetupView>?
 
     static var isNeeded: Bool { !ModelSetup.allReady }
 
-    func show(root: URL) {
-        if window == nil {
-            let hosting = NSHostingController(rootView: SetupView(root: root))
+    /// Called whenever the window re-reads readiness, so the menu bar's
+    /// "Finish setup…" item can disappear the moment the download lands rather
+    /// than at the next launch.
+    var onReadinessChanged: ((Bool) -> Void)?
+
+    /// `firstRun` adds the closing instruction, and nothing else: this window is
+    /// the same six checks either way. It is a parameter of the *showing* rather
+    /// than of the window, because the window is kept alive between shows — the
+    /// first one opens itself at launch, and a later one comes from Settings,
+    /// where "you can close this now" would be telling you nothing.
+    func show(root: URL, firstRun: Bool = false) {
+        let view = SetupView(
+            root: root, firstRun: firstRun, onReadinessChanged: onReadinessChanged,
+            onDone: { [weak self] in self?.window?.performClose(nil) })
+        if let hosting {
+            hosting.rootView = view
+        } else {
+            let hosting = NSHostingController(rootView: view)
             let window = NSWindow(contentViewController: hosting)
             window.title = "Plume Setup & Checks"
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.center()
+            self.hosting = hosting
             self.window = window
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -47,11 +64,15 @@ final class SetupWindowController {
 
 struct SetupView: View {
     let root: URL
+    var firstRun: Bool = false
+    var onReadinessChanged: ((Bool) -> Void)?
+    var onDone: (() -> Void)?
 
     @State private var checks: [Check] = []
     @State private var busy: String?
     @State private var download: DownloadState?
     @State private var probed = false
+    @Environment(\.controlActiveState) private var activeState
 
     private struct DownloadState {
         var progress: ModelSetup.Progress?
@@ -101,6 +122,21 @@ struct SetupView: View {
                 + "made before the models arrive simply waits for them.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            if firstRun {
+                Divider()
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("That's everything. Close this and start a recording from the "
+                        + "feather in the menu bar, or with ⌥⌘R. Settings is where the "
+                        + "meetings folder, templates and vocabulary live.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button("Close") { onDone?() }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                }
+            }
         }
         .padding(24)
         .frame(width: 480, alignment: .leading)
@@ -109,6 +145,15 @@ struct SetupView: View {
             // No probes on open: they cost ~2s and play a tone, which a window
             // must never do merely for appearing.
             await refresh(probeAudio: false)
+        }
+        // Starting Ollama means leaving this window and coming back, so coming
+        // back is the signal. `controlActiveState` is scoped to *this* window,
+        // unlike a `didBecomeKey` notification, which fires for every window in
+        // the app — including while this one is closed, since it is kept alive
+        // between shows.
+        .onChange(of: activeState) { _, state in
+            guard state == .key else { return }
+            Task { await refreshSummarization() }
         }
     }
 
@@ -190,6 +235,12 @@ struct SetupView: View {
             }
         case "recordings folder":
             Button("Reveal") { NSWorkspace.shared.activateFileViewerSelecting([root]) }
+        case "summarization":
+            // The one check whose subject is a daemon someone starts *while*
+            // this window is open, so it is the one that needs asking again.
+            // Cheap and silent, unlike the capture probes.
+            Button("Re-check") { Task { await refreshSummarization() } }
+                .disabled(busy != nil)
         default:
             EmptyView()
         }
@@ -238,6 +289,16 @@ struct SetupView: View {
         result.append(await DoctorReport.checkSummarization())
         checks = result
         if probeAudio { probed = true }
+        onReadinessChanged?(SetupWindowController.isNeeded)
+    }
+
+    /// Just the Ollama row. Separate from `refresh` because it is the only
+    /// check that costs nothing to repeat — the others either probe audio or
+    /// read state that cannot change behind this window's back.
+    private func refreshSummarization() async {
+        let check = await DoctorReport.checkSummarization()
+        guard let index = checks.firstIndex(where: { $0.name == check.name }) else { return }
+        checks[index] = check
     }
 
     /// Ask, then prove. The request must return before the probes run, or the

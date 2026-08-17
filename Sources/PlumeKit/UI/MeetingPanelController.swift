@@ -234,9 +234,4 @@ final class MeetingPanelController: MeetingDetailModel {
     func merge(_ source: String, into destination: String) {
         applySpeakerEdit { try SpeakerEditing.merge(source, into: destination, in: $0) }
     }
-
-    func openInEditor() {
-        guard let session else { return }
-        NSWorkspace.shared.open(session.appendingPathComponent("meeting.md"))
-    }
 }

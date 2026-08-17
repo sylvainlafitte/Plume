@@ -145,8 +145,6 @@ struct WrapUpView: View {
                     onCollapse: { controller.collapse() })
                 Text(controller.title).font(.headline).lineLimit(1)
                 Spacer()
-                Button("Open") { controller.openInEditor() }
-                    .help("Open meeting.md in your markdown editor")
             }
             .contentShape(Rectangle())
             .gesture(WindowDragGesture())
@@ -178,6 +176,13 @@ struct SpeakerListView: View {
     let onMerge: (String, String) -> Void
 
     @State private var drafts: [String: String] = [:]
+    /// Which row is currently showing its field. A named speaker's row is just
+    /// the name plus a pencil: the field was permanently on screen before, but
+    /// a rename rewrites the transcript's label, so afterwards it sat there
+    /// empty and showing a placeholder while the real name lived in `row.label`
+    /// — reading as if the rename hadn't taken. Editing is now a state, and the
+    /// field gets the whole row's width while it lasts.
+    @State private var editing: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -186,21 +191,36 @@ struct SpeakerListView: View {
             ForEach(rows) { row in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(row.label)
-                            .font(.system(.caption, design: .monospaced))
-                            .frame(width: 28, alignment: .leading)
-
-                        TextField(
-                            row.proposal?.name ?? "name",
-                            text: Binding(
-                                get: { drafts[row.label] ?? "" },
-                                set: { drafts[row.label] = $0 })
-                        )
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit {
-                            let name = (drafts[row.label] ?? "")
-                                .trimmingCharacters(in: .whitespaces)
-                            if !name.isEmpty { onRename(row.label, name) }
+                        if isEditing(row) {
+                            // Still anonymous: keep the label visible, since it
+                            // is what the sample line below is evidence for.
+                            if !isNamed(row) {
+                                Text(row.label)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .frame(width: 28, alignment: .leading)
+                            }
+                            TextField(
+                                row.proposal?.name ?? "name",
+                                text: Binding(
+                                    get: { drafts[row.label] ?? "" },
+                                    set: { drafts[row.label] = $0 })
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { commit(row) }
+                        } else {
+                            Text(row.label)
+                                .font(.callout)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Button {
+                                drafts[row.label] = row.label
+                                editing = row.label
+                            } label: {
+                                Image(systemName: "pencil")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Rename this speaker")
+                            Spacer(minLength: 0)
                         }
 
                         if rows.count > 1 {
@@ -223,6 +243,7 @@ struct SpeakerListView: View {
                         // Evidence is shown, never hidden behind the name: this
                         // is a suggestion being accepted, not a fact.
                         Button {
+                            editing = nil
                             drafts[row.label] = proposal.name
                             onRename(row.label, proposal.name)
                         } label: {
@@ -239,5 +260,24 @@ struct SpeakerListView: View {
                 }
             }
         }
+    }
+
+    /// A row is named once its label is no longer one diarization produced.
+    /// Renaming rewrites the label in the transcript, so this needs no stored
+    /// flag — the label *is* the record of whether a human has named the voice.
+    private func isNamed(_ row: SpeakerRow) -> Bool {
+        !Speaker.isRemoteLabel(row.label) && row.label != Speaker.them.label
+    }
+
+    /// Anonymous rows are always editable — there is nothing to reveal first.
+    private func isEditing(_ row: SpeakerRow) -> Bool {
+        editing == row.label || !isNamed(row)
+    }
+
+    private func commit(_ row: SpeakerRow) {
+        let name = (drafts[row.label] ?? "").trimmingCharacters(in: .whitespaces)
+        editing = nil
+        guard !name.isEmpty, name != row.label else { return }
+        onRename(row.label, name)
     }
 }

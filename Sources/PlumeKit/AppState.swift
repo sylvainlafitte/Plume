@@ -57,6 +57,14 @@ public final class AppState {
     /// item's enabled state — an action that does nothing is worse than none.
     public var hasPanelSession: Bool = false
 
+    /// Whether the models are still missing, i.e. whether "Finish setup…"
+    /// belongs in the menu. It lives here rather than being read from
+    /// `ModelSetup` at render time because the menu is rendered from an
+    /// observation tracker on this object: a value the tracker cannot see
+    /// leaves the item on screen until some unrelated state change happens to
+    /// re-render it — which is exactly what a finished download is not.
+    public var setupNeeded: Bool = false
+
     /// A newer release exists. Nil is the normal state and shows nothing at all
     /// — not "up to date", which would be a line that says nothing 364 days a
     /// year, the same reason the "N without a summary" counters were removed.

@@ -145,7 +145,7 @@ final class MenuBarController {
         // route to the same place is clutter.
         panelItem.isEnabled = state.hasPanelSession
         panelItem.title = "Show notes panel"
-        setupItem.isHidden = !SetupWindowController.isNeeded
+        setupItem.isHidden = !state.setupNeeded
         if let update = state.updateAvailable {
             updateItem.title = "Update to \(update.version)…"
             updateItem.isHidden = false
