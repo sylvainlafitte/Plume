@@ -15,11 +15,15 @@ struct SettingsTests {
             { "recordings_dir": "~/Elsewhere",
               "on_stop": "say done",
               "mic_voice_processing": true,
+              "update_check": false,
               "transcription": { "enabled": false, "engine": "parakeet" } }
             """)
         #expect(settings.recordingsDir == "~/Elsewhere")
         #expect(settings.onStop == "say done")
         #expect(settings.micVoiceProcessing == true)
+        // The one key whose *absence* must not read as "off": it gates a network
+        // request, so a decoding slip here would silently disable the feature.
+        #expect(settings.updateCheck == false)
         #expect(settings.transcription?.enabled == false)
         #expect(settings.transcription?.engine == "parakeet")
     }
@@ -31,12 +35,14 @@ struct SettingsTests {
         let settings = try decode("{}")
         #expect(settings.recordingsDir == nil)
         #expect(settings.micVoiceProcessing == nil)
+        #expect(settings.updateCheck == nil)
         #expect(settings.transcription == nil)
 
         let encoded = try JSONEncoder().encode(settings)
         let text = String(decoding: encoded, as: UTF8.self)
         #expect(!text.contains("mic_voice_processing"))
         #expect(!text.contains("recordings_dir"))
+        #expect(!text.contains("update_check"))
     }
 
     @Test("a partial config decodes without losing the rest")

@@ -12,10 +12,12 @@ final class MenuBarController {
     private let toggleItem: NSMenuItem
     private let panelItem: NSMenuItem
     private let setupItem: NSMenuItem
+    private let updateItem: NSMenuItem
     private var idleImage: NSImage?
     private var recordingImage: NSImage?
 
     var onToggle: (() -> Void)?
+    var onOpenUpdate: (() -> Void)?
     var onQuit: (() -> Void)?
     var onDismissFailure: (() -> Void)?
     var onOpenSettings: (() -> Void)?
@@ -85,6 +87,18 @@ final class MenuBarController {
         )
         menu.addItem(setupItem)
 
+        // Same rule as setup: it earns a slot only while there is something to
+        // act on, and it never says "up to date" — that is a line which would be
+        // meaningless on all but a few days of the app's life.
+        //
+        // Here rather than in the status region at the top, because it is a thing
+        // you *do* (it opens the release page), and because the top belongs to
+        // this meeting: recording, transcribing, and what just failed.
+        updateItem = NSMenuItem(
+            title: "", action: #selector(openUpdateClicked), keyEquivalent: "")
+        updateItem.isHidden = true
+        menu.addItem(updateItem)
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
@@ -98,7 +112,7 @@ final class MenuBarController {
         // sidebar footer instead: it points at the folder *behind that list*,
         // and the menu bar is for actions you need without opening anything.
         for item in [
-            toggleItem, panelItem, history, settings, setupItem, quit, failureItem,
+            toggleItem, panelItem, history, settings, setupItem, updateItem, quit, failureItem,
         ] {
             item.target = self
         }
@@ -132,6 +146,12 @@ final class MenuBarController {
         panelItem.isEnabled = state.hasPanelSession
         panelItem.title = "Show notes panel"
         setupItem.isHidden = !SetupWindowController.isNeeded
+        if let update = state.updateAvailable {
+            updateItem.title = "Update to \(update.version)…"
+            updateItem.isHidden = false
+        } else {
+            updateItem.isHidden = true
+        }
         statusItem.button?.image = isRecording ? recordingImage : idleImage
 
         switch state.transcription {
@@ -203,6 +223,7 @@ final class MenuBarController {
     @objc private func openSettingsClicked() { onOpenSettings?() }
 
     @objc private func openSetupClicked() { onOpenSetup?() }
+    @objc private func openUpdateClicked() { onOpenUpdate?() }
     @objc private func togglePanelClicked() { onTogglePanel?() }
     @objc private func openHistoryClicked() { onOpenHistory?() }
 }

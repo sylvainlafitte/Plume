@@ -216,6 +216,7 @@ final class AppController {
     private let setupWindow = SetupWindowController()
     private let hotkey = GlobalHotkey()
     private var cameraWatch: CameraWatch?
+    private var updateWatch: UpdateWatch?
     private var notifications: NotificationRouter?
     private let meetingPanel = MeetingPanelController()
     private let historyWindow: HistoryWindowController
@@ -232,9 +233,23 @@ final class AppController {
                 self?.reloadCallDetection()
             }
             self?.settingsWindow.onOpenSetup = { [weak self] in self?.showSetup() }
+            self?.settingsWindow.onUpdateCheckChanged = { [weak self] in
+                self?.updateWatch?.startIfEnabled()
+            }
+            self?.settingsWindow.onCheckForUpdates = { [weak self] in
+                await self?.checkForUpdatesNow() ?? nil
+            }
             self?.settingsWindow.show()
         }
         menuBar.onOpenHistory = { [weak self] in self?.historyWindow.show() }
+        // Opens the release page and nothing else — Plume never replaces its own
+        // bundle. Deliberately does not clear `updateAvailable`: the update is
+        // still pending after you have looked at it, and the line disappearing on
+        // click would read as "installed".
+        menuBar.onOpenUpdate = { [weak self] in
+            guard let url = self?.state.updateAvailable?.url else { return }
+            NSWorkspace.shared.open(url)
+        }
         menuBar.onOpenSetup = { [weak self] in self?.showSetup() }
         menuBar.onTogglePanel = { [weak self] in self?.meetingPanel.focus() }
         meetingPanel.onStopRequested = { [weak self] in self?.stopSessionIfRecording() }
@@ -263,6 +278,15 @@ final class AppController {
             onDetected: { [weak self] in self?.cameraTurnedOn() })
         watch.startIfEnabled()
         cameraWatch = watch
+
+        // On by default, unlike the camera watch — and the only thing here that
+        // talks to a host we don't control. It sets one field; the menu bar
+        // decides what that looks like.
+        let updates = UpdateWatch(onFound: { [weak self] release in
+            self?.state.updateAvailable = release
+        })
+        updates.startIfEnabled()
+        updateWatch = updates
 
         observeState()
 
@@ -315,6 +339,26 @@ final class AppController {
 
     /// Settings changed while running — re-read rather than requiring a restart.
     func reloadCallDetection() { cameraWatch?.startIfEnabled() }
+
+    /// Settings' "Check now". Goes through the same state the menu bar reads, so
+    /// a check from one surface cannot leave the other showing something else —
+    /// the drift that AGENTS.md §4 records for the two meeting surfaces.
+    ///
+    /// Returns the result too, because Settings has to say *something* after a
+    /// button press: silence is the correct answer for a background check and
+    /// the wrong one for a deliberate click.
+    ///
+    /// Only ever *sets* the state, never clears it. nil means "current or
+    /// couldn't tell", and clearing on nil would let one offline click erase a
+    /// real finding — while the case it would supposedly handle cannot happen,
+    /// since installing an update means a new process with no state to stale.
+    func checkForUpdatesNow() async -> UpdateCheck.Release? {
+        // Explicitly ignores the setting: the press is the request. See
+        // `availableUpdate(honoringSetting:)`.
+        let release = await UpdateCheck.availableUpdate(honoringSetting: false)
+        if let release { state.updateAvailable = release }
+        return release
+    }
 
     /// Surfaced so `applicationDidFinishLaunching` can open setup without
     /// reaching into the controller's windows.

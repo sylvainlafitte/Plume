@@ -9,8 +9,14 @@ Your meeting files are plain Markdown, so you can open and edit them in any text
 ## Local by default
 
 Recordings, transcripts, notes and summaries stay on your Mac. Plume has no account, analytics or
-cloud service. It uses Ollama on `127.0.0.1` for summaries. The only network access is the initial
-download of the speech models.
+cloud service. It uses Ollama on `127.0.0.1` for summaries.
+
+Two things reach the network, and nothing else:
+
+- the one-time download of the speech models, from Hugging Face;
+- a daily check for a new release, which asks GitHub for the latest version number and sends no
+  identifier. Turn it off in Settings ▸ Updates, or set `"update_check": false` in
+  `~/.config/plume/config.json`; Plume then asks only when you press **Check now**.
 
 Audio is deleted after transcription. The transcript and your notes remain in `meeting.md`.
 
@@ -34,8 +40,17 @@ Audio is deleted after transcription. The transcript and your notes remain in `m
 
 ## Install
 
-Download the latest release from [Releases](https://github.com/sylvainlafitte/Plume/releases), unzip
-it, and move **Plume.app** to `/Applications`.
+```bash
+brew install --cask sylvainlafitte/tap/plume
+```
+
+Two things to know. Homebrew treats any non-official tap as untrusted: installing it by full name as
+above trusts this one, but other `brew` commands may refuse until you run
+`brew trust sylvainlafitte/tap`. And Homebrew will not install over an existing
+`/Applications/Plume.app` — move that to the Trash first if you installed by hand before.
+
+Or download the latest release from [Releases](https://github.com/sylvainlafitte/Plume/releases),
+unzip it, and move **Plume.app** to `/Applications`.
 
 To build from source:
 
@@ -71,10 +86,37 @@ transcribes the meeting and writes the notes, summary and transcript to:
 Open the Meetings window later to edit notes, change a template, rename speakers or regenerate a
 summary. The files are yours to move, edit and keep.
 
+## Updating
+
+If you installed with Homebrew:
+
+```bash
+brew upgrade --cask plume
+```
+
+Otherwise download the new release and replace **Plume.app**. Plume tells you when a new version
+exists — a line in the menu bar that opens the release page — but it never installs anything by
+itself.
+
+## Uninstalling
+
+Move **Plume.app** to the Trash (or `brew uninstall --cask plume`), then remove what it wrote
+outside the app:
+
+```bash
+rm -rf ~/.config/plume ~/Library/Application\ Support/Plume ~/Library/Logs/Plume
+```
+
+Your meetings in `~/Meetings` are deliberately left alone: `meeting.md` is the only copy, and the
+audio it came from is already deleted. The speech models live in
+`~/Library/Application Support/FluidAudio` and may be shared with other apps.
+
 ## Privacy
 
-Plume processes meeting data locally and sends nothing to a remote service. Ollama runs locally on
-your Mac. Tell participants when you are recording and follow the laws that apply where you are.
+Plume processes meeting data locally and sends no meeting data anywhere. Ollama runs locally on your
+Mac. The only requests Plume makes are the two listed under [Local by default](#local-by-default),
+neither of which carries anything about you or your meetings. Tell participants when you are
+recording and follow the laws that apply where you are.
 
 ## License
 

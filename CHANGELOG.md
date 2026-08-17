@@ -9,7 +9,22 @@ and does not appear here.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **Homebrew cask.** `brew install --cask sylvainlafitte/tap/plume`, and `brew upgrade --cask plume`
+  to update. `brew uninstall --zap` removes Plume's settings, templates and log — never `~/Meetings`.
+- **Update notice.** Plume asks GitHub once a day whether a newer release exists and, if so, shows a
+  line in the menu bar that opens the release page. It never downloads or installs anything itself.
+  This is the first request Plume makes that is neither localhost nor the one-time model download,
+  so it sends no identifier and is switchable in Settings ▸ Updates (`update_check`). Off, Plume
+  makes no request unless you press **Check now**.
+- **Continuous integration.** `swift test` and a bundle assembly run on a clean macOS runner for
+  every push and pull request.
+
+### Documentation
+
+- README gained explicit **Updating** and **Uninstalling** sections, and now lists both network
+  requests rather than only the model download.
 
 ## [0.1.0] — 2026-08-16
 

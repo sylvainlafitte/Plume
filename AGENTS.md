@@ -138,6 +138,7 @@ an earlier design. **Don't "fix" them without asking.**
 | No Dock icon, and windows aren't in ⌘-Tab | Accessory apps are absent from ⌘-Tab **by rule**, not by window configuration — the only lever is `NSApp.setActivationPolicy(.regular)`, which brings a Dock icon and a real menu bar. Declined 2026-08-15. Windows are reached from the menu bar. |
 | `state.json` carries a `machine` id, and `resumePending` skips foreign sessions | For the case where the meetings root is a *synced* folder shared by two Macs. Looks like dead code on a single Mac — `isOwnedByThisMachine` is always true there, including for pre-stamp sessions, which is why it's `String?`. Without it the second Mac adopts the first's `recorded` session and transcribes audio that may still be downloading, then deletes it (invariant 6). Only the unattended path is guarded; recording enqueues its own session directly. The id lives beside `config.json`, never in the meetings root — it must not sync. |
 | Nothing in the app helps you disclose the recording | R4's remedy is the **visible indicator** and nothing more. A Disclosure button that copied a suggested line was built and removed the same day: consent law is jurisdictional and situational, so a canned sentence in a menubar app is either redundant for someone who knows their obligations or falsely reassuring for someone who doesn't — and the second failure is the one that matters. Working out how to get consent is the user's, not Plume's. |
+| The update check never updates anything, and says nothing when it fails | It sets one field; the menu bar shows a line **only** while an update exists, and clicking it opens the release page. No appcast, no EdDSA key, no self-replacing bundle — `brew upgrade` and a drag to /Applications already work. Unreachable, rate-limited and up-to-date are one answer (nil) on purpose: a failed check is not a problem the user has, and an unparseable tag must mean silence, never a permanent un-dismissable "update available". It is also the **only** non-localhost request Plume makes besides the first-run model download, so `update_check` gates the *request*, not the result. The one bypass is Settings' **Check now** (`honoringSetting: false`), because the press is the request — the same consent-by-click rule as the call-detection notification, and without it the button would answer "up to date" having asked nobody. Touching any of this puts the README's what-leaves-the-machine claim in scope. |
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Confirmed on a real 1:1 2026-08-17 — one remote speaker, no over-split. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
 
 Genuinely **not built yet** (different thing): Phase 7 Ask — now scoped as its own **global**
@@ -147,9 +148,10 @@ surface with the per-meeting tab as the N=1 case, not a row and not only a tab (
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 174 tests
+swift build && swift test                      # library + 185 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
 ./build-app.sh release notarize                # release: notarize, staple, dist/Plume-<v>.zip
+./release-cask.sh                              # after publishing: hash the asset, update the cask
 ./.build/debug/plume doctor                    # checks — but see below
 ./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
 ./.build/debug/plume summarize <session-dir>   # dev: summarize in place
@@ -159,6 +161,26 @@ swift build && swift test                      # library + 174 tests
 The last one only means anything from inside the bundle: `SMAppService` keys on the *calling*
 app, so a bare binary always reports `notFound`. Runtime log: `~/Library/Logs/Plume/plume.log`
 (rotates once at 1 MB); per-session transcription logs stay in `.plume/transcribe.log`.
+
+**The Homebrew cask lives in two places and only one of them is Homebrew's.** `Casks/plume.rb` here
+is the source of truth; a tap must be a repo named `homebrew-*`, so `release-cask.sh` recomputes the
+sha256 **from the asset downloaded back from the release** and copies the file into
+`sylvainlafitte/homebrew-tap`. Hashing the local `dist/` zip would reintroduce the stale-artifact
+failure with a worse symptom: a checksum mismatch on a stranger's machine reads as tampering. Stanza
+order in the cask is enforced by `brew style`, and `depends_on macos: :sequoia` is the *minimum*
+form — the `">= :sequoia"` spelling is deprecated.
+
+Two things Homebrew 6 does that the install instructions have to survive, both found by installing
+it rather than reading about it: a third-party tap is **untrusted** until `brew trust` (an explicit
+`brew install --cask <tap>/<cask>` trusts it and records that in `~/.homebrew/trust.json`, but a bare
+`brew info` on the untrusted tap refuses to load the cask at all), and it **refuses to install over
+an existing `/Applications/Plume.app`** — which every hand-installed user has.
+
+**CI (`.github/workflows/ci.yml`) runs only what a clean runner can prove**: `swift test` plus a
+debug `build-app.sh` (ad-hoc signed, since there is no certificate there). Everything involving
+capture, models, Ollama or notarization stays a manual check — a red X that means nothing is worse
+than no check. It clones with `fetch-depth: 0` deliberately, so the `CFBundleVersion` stamp is a real
+commit count rather than the shallow clone's `1`.
 
 **Never test audio capture with `swift run`; the result is meaningless either way.** A bare
 binary has no TCC identity — capture is attributed to the *responsible process*, i.e. your
@@ -330,7 +352,7 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-17, after the documentation trim.*
+*Last reviewed against the code: 2026-08-17, after CI, the Homebrew cask and the update check.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass does
 not happen, and a silently wrong constraint is worse than a missing one — the next agent will

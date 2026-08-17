@@ -1,0 +1,63 @@
+# Build and test on a clean macOS runner.
+#
+# The point of this workflow is that 185 tests only stay honest if they run
+# somewhere that is not the author's Mac. Everything here must therefore work
+# with no Developer ID, no TCC grants, no audio devices, no FluidAudio model
+# cache and no Ollama — which the suite already satisfies: it is pure unit
+# tests and finishes in well under a second. Anything that needs real capture,
+# real models or a real daemon is verified by hand (AGENTS.md §3), and adding
+# it here would only produce a red X that means nothing.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push supersedes the first; no value in finishing the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # macos-latest rather than a pinned image: the package needs a macOS 15
+    # deployment target and a Swift 6 toolchain, and a newer SDK builds an
+    # older target fine. A pinned label eventually gets retired instead.
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # build-app.sh stamps CFBundleVersion from `git rev-list --count HEAD`.
+          # The default shallow clone would make that 1 — the exact value that
+          # shipped in v0.1.0 by accident — so CI would "pass" while proving
+          # nothing about the stamp. Full history keeps the check meaningful.
+          fetch-depth: 0
+
+      # Only the resolved dependency clones, never .build output: FluidAudio is
+      # a big checkout, while cached object files are how a stale build passes.
+      #
+      # The path is macOS's, not the ~/.cache one every Linux example shows —
+      # verified by listing it. Cached to the wrong path this step still
+      # "succeeds", every run, while caching nothing.
+      - name: Cache SwiftPM dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: swiftpm-${{ runner.os }}-
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Test
+        run: swift test
+
+      # Assembling the bundle is part of what can break: the plist copy, the
+      # PlistBuddy stamp, the entitlements and codesign all live in the script
+      # rather than in the package. With no certificate on the runner it signs
+      # ad-hoc, which is enough to catch every non-signing regression.
+      - name: Assemble the app bundle
+        run: ./build-app.sh debug

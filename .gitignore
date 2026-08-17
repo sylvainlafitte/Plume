@@ -34,3 +34,12 @@ build/
 # ---- macOS ----
 .DS_Store
 dist/
+
+# ---- The Homebrew tap is a separate repo, never a directory in this one ----
+# `gh repo create sylvainlafitte/homebrew-tap --clone` run from here drops an
+# empty clone inside the working tree, and git then refuses to stage *anything*:
+# "fatal: 'homebrew-tap/' does not have a commit checked out". Ignoring it means
+# a repeat is harmless instead of blocking every commit. Casks/plume.rb here is
+# the source of truth; release-cask.sh copies it into a clone kept elsewhere
+# (~/src/homebrew-tap by default, or $PLUME_TAP).
+homebrew-tap/

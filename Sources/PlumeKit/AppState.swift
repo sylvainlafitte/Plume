@@ -57,6 +57,13 @@ public final class AppState {
     /// item's enabled state — an action that does nothing is worse than none.
     public var hasPanelSession: Bool = false
 
+    /// A newer release exists. Nil is the normal state and shows nothing at all
+    /// — not "up to date", which would be a line that says nothing 364 days a
+    /// year, the same reason the "N without a summary" counters were removed.
+    /// Never set from a failed check: unreachable and current are the same
+    /// answer here, because neither is a problem the user has.
+    public var updateAvailable: UpdateCheck.Release?
+
     public init() {}
 
     public func report(_ message: String) {

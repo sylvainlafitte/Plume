@@ -16,13 +16,17 @@ final class SettingsWindowController {
     private var window: NSWindow?
     var onCallDetectionChanged: (() -> Void)?
     var onOpenSetup: (() -> Void)?
+    var onUpdateCheckChanged: (() -> Void)?
+    var onCheckForUpdates: (() async -> UpdateCheck.Release?)?
 
     func show() {
         if window == nil {
             let hosting = NSHostingController(
                 rootView: SettingsView(
                     onCallDetectionChanged: { [weak self] in self?.onCallDetectionChanged?() },
-                    onOpenSetup: { [weak self] in self?.onOpenSetup?() }))
+                    onOpenSetup: { [weak self] in self?.onOpenSetup?() },
+                    onUpdateCheckChanged: { [weak self] in self?.onUpdateCheckChanged?() },
+                    onCheckForUpdates: { [weak self] in await self?.onCheckForUpdates?() ?? nil }))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Plume Settings"
             // Resizable, because the content is now taller than some screens
@@ -44,6 +48,9 @@ struct SettingsView: View {
     /// So a toggle takes effect now rather than at the next launch.
     var onCallDetectionChanged: () -> Void = {}
     var onOpenSetup: () -> Void = {}
+    var onUpdateCheckChanged: () -> Void = {}
+    /// Returns the newer release, or nil for "nothing newer / couldn't tell".
+    var onCheckForUpdates: () async -> UpdateCheck.Release? = { nil }
     @State private var settings = Config.current()
     @State private var saveError: String?
     @State private var installedModels: [String] = []
@@ -52,6 +59,10 @@ struct SettingsView: View {
     /// window is reflected here without a relaunch.
     @State private var modelsReady = ModelSetup.allReady
     @State private var modelsError: String?
+    /// Three states, because a button press must be answered: not asked yet,
+    /// asking, and the answer.
+    @State private var updateChecking = false
+    @State private var updateResult: String?
     private var templates: [SummaryTemplate] { TemplateStore.all() }
 
     /// `requiresApproval` means the user turned it off in System Settings.
@@ -267,6 +278,59 @@ struct SettingsView: View {
                         + "correct the transcript, which is written before it is read."
                     ).font(.caption).foregroundStyle(.secondary)
                 }
+            }
+
+            // Its own section rather than a row under Troubleshooting: the footer
+            // has to state what leaves the machine, which is not a troubleshooting
+            // concern and is the one claim in the README this feature can falsify.
+            Section {
+                LabeledContent("This version") {
+                    HStack(spacing: 8) {
+                        Text(UpdateCheck.currentVersion).foregroundStyle(.secondary)
+                        Spacer()
+                        if updateChecking {
+                            ProgressView().controlSize(.small)
+                        } else if let updateResult {
+                            Text(updateResult).foregroundStyle(.secondary)
+                        }
+                        Button("Check now") {
+                            Task {
+                                updateChecking = true
+                                let found = await onCheckForUpdates()
+                                updateChecking = false
+                                // "Couldn't check" is not distinguished from "up
+                                // to date" on purpose: `availableUpdate` returns
+                                // nil for both, and inventing the distinction
+                                // here would mean claiming to know which.
+                                updateResult = found.map { "\($0.version) available" }
+                                    ?? "Up to date"
+                            }
+                        }
+                        .disabled(updateChecking)
+                    }
+                }
+                Toggle(
+                    "Check for updates automatically",
+                    isOn: Binding(
+                        get: { settings.updateCheck ?? true },
+                        set: { newValue in
+                            settings.updateCheck = newValue
+                            save { $0.updateCheck = newValue }
+                            onUpdateCheckChanged()
+                        }
+                    )
+                )
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text(
+                    "Plume is not in the App Store, so nothing else will tell you a new version "
+                    + "exists. Once a day it asks GitHub for the latest release number and shows "
+                    + "a line in the menu bar if yours is older. It sends no identifier and never "
+                    + "installs anything by itself — the line opens the release page.\n\n"
+                    + "Turned off, Plume makes no request unless you press Check now. "
+                    + "Installed with Homebrew, `brew upgrade --cask plume` is the update."
+                ).font(.caption).foregroundStyle(.secondary)
             }
 
             if let saveError {

@@ -17,6 +17,7 @@ struct Settings: Codable, Sendable, Equatable {
     var transcriptEchoFilter: Bool?
     var expectedParticipants: Int?
     var callDetection: Bool?
+    var updateCheck: Bool?
     var summaryModel: String?
     var summaryContextTokens: Int?
     var defaultTemplate: String?
@@ -29,6 +30,7 @@ struct Settings: Codable, Sendable, Equatable {
         case transcriptEchoFilter = "transcript_echo_filter"
         case expectedParticipants = "expected_participants"
         case callDetection = "call_detection"
+        case updateCheck = "update_check"
         case summaryModel = "summary_model"
         case summaryContextTokens = "summary_context_tokens"
         case defaultTemplate = "default_template"
@@ -119,6 +121,17 @@ enum Config {
     /// reminder. Opt in from Settings.
     static func callDetectionEnabled() -> Bool {
         current().callDetection ?? false
+    }
+
+    /// Ask GitHub once a day whether a newer release exists. **Default on**,
+    /// which is the one default here that trades a privacy claim for a
+    /// functional one: outside the App Store nothing else will ever tell you an
+    /// update exists, and a stale install is its own risk. It is the only
+    /// non-localhost request Plume makes after the first-run model download, so
+    /// the README names it, and off means no request is made at all rather than
+    /// a result that is discarded.
+    static func updateCheckEnabled() -> Bool {
+        current().updateCheck ?? true
     }
 
     /// Configured engine name. Only "parakeet" ships today; the coordinator
