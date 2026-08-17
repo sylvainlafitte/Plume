@@ -167,8 +167,14 @@ enum Config {
     }
 
     /// Upper bound on far-end speakers, or nil for unconstrained.
-    static func maxFarEndSpeakers() -> Int? {
-        let expected = expectedParticipants()
+    ///
+    /// - Parameter expected: a per-meeting count from `meta.json`, set from the
+    ///   recording panel for this recording only. Absent — the usual case — the
+    ///   configured default applies, which is why one 5-person meeting does not
+    ///   re-tune every later 1:1: the override lives in the session folder, so
+    ///   there is nowhere for it to persist.
+    static func maxFarEndSpeakers(expected: Int? = nil) -> Int? {
+        let expected = expected ?? expectedParticipants()
         guard expected > 0 else { return nil }
         return Swift.max(1, expected - 1)
     }

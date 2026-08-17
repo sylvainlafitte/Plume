@@ -100,4 +100,56 @@ struct ExpectedParticipantsTests {
         // speakers at all" rather than "just you".
         #expect(cap(for: 1) == 1)
     }
+
+    @Test("a meeting's own count wins over the configured default")
+    func perMeetingOverride() {
+        // Passing the count explicitly bypasses the file, so this holds whatever
+        // the developer's own config says.
+        #expect(Config.maxFarEndSpeakers(expected: 5) == 4)
+        #expect(Config.maxFarEndSpeakers(expected: 2) == 1)
+        // 0 keeps its meaning as an override: unconstrained, not "no speakers".
+        #expect(Config.maxFarEndSpeakers(expected: 0) == nil)
+    }
+
+    @Test("no override falls back to the default, which is what makes it revert")
+    func absentOverrideFallsBack() {
+        // The override lives in the session folder and nowhere else, so the
+        // meeting after a 5-person call has no override and lands here — the
+        // "goes back to the setting" behaviour is this line, not reset logic.
+        #expect(Config.maxFarEndSpeakers(expected: nil) == Config.maxFarEndSpeakers())
+    }
+}
+
+@Suite("Per-meeting participant count in meta.json")
+struct SessionMetaParticipantsTests {
+
+    private func writeMeta(_ json: String) throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("plume-meta-\(UUID().uuidString)", isDirectory: true)
+        let work = SessionState.directory(in: dir)
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: work.appendingPathComponent("meta.json"))
+        return dir
+    }
+
+    @Test("the count is read back when present")
+    func readsOverride() throws {
+        let dir = try writeMeta(#"""
+        {"files": {"mic": "mic.caf", "system": "system.caf"}, "expected_participants": 5}
+        """#)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(try SessionMeta.read(from: dir).expectedParticipants == 5)
+    }
+
+    @Test("an absent key is nil, not a default — sessions predate the feature")
+    func absentKeyIsNil() throws {
+        // Same one-way tolerance as `start_offset_ms` and `machine`: a meeting
+        // recorded before this existed must transcribe against the config
+        // default, exactly as it would have then.
+        let dir = try writeMeta(#"""
+        {"files": {"mic": "mic.caf", "system": "system.caf"}}
+        """#)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(try SessionMeta.read(from: dir).expectedParticipants == nil)
+    }
 }

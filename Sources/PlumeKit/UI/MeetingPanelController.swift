@@ -37,6 +37,17 @@ final class MeetingPanelController: MeetingDetailModel {
     var progressNote = "Summarising…"
     var speakerRows: [SpeakerRow] = []
 
+    /// How many people are in *this* meeting, including you — the diarizer's cap
+    /// (`Config.maxFarEndSpeakers`). Starts at the configured default on every
+    /// recording and is never written back to config: who is in the room is a
+    /// fact about one meeting, so a 5-person call must not re-tune every later
+    /// 1:1. Read at diarization time, which starts at Stop — so this is editable
+    /// exactly while the recording panel is up, and pointless afterwards.
+    var participants: Int = Config.expectedParticipants()
+    /// Set by AppController; carries the count onto the live session, which
+    /// writes it into meta.json at Stop.
+    var onParticipantsChanged: ((Int) -> Void)?
+
     var templates: [SummaryTemplate] { TemplateStore.all() }
     // MeetingDetailModel conformance.
     /// The panel is where you write a meeting record.
@@ -82,6 +93,9 @@ final class MeetingPanelController: MeetingDetailModel {
         speakerRows = []
         detailTab = initialTab
         expandedMode = .recording
+        // Back to the configured default: last meeting's count was last
+        // meeting's, and re-reading Config picks up an edit to the file too.
+        participants = Config.expectedParticipants()
         // Starts collapsed. Most of a call is spent not writing anything, and
         // the notes field is one click away — whereas a strip that appears
         // unbidden over a call has to be dismissed before it earns its place.
@@ -111,6 +125,14 @@ final class MeetingPanelController: MeetingDetailModel {
     }
 
     func requestStop() { onStopRequested?() }
+
+    /// Applies a participant count to the live recording. Only ever called while
+    /// recording — the value reaches the diarizer through meta.json, which is
+    /// written at Stop.
+    func setParticipants(_ count: Int) {
+        participants = count
+        onParticipantsChanged?(count)
+    }
 
     // MARK: - Panel state
 

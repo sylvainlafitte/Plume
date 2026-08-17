@@ -257,6 +257,13 @@ final class AppController {
             guard let self else { return }
             self.state.hasPanelSession = self.meetingPanel.hasSession
         }
+        // The count reaches the diarizer through meta.json, so it only has to be
+        // on the session before Stop writes it. A change arriving with no live
+        // session is a no-op rather than something to remember: the panel is only
+        // showing that control while recording.
+        meetingPanel.onParticipantsChanged = { [weak self] count in
+            self?.session?.expectedParticipants = count
+        }
 
         // ⌥⌘R from anywhere. Carbon, so it needs no Accessibility grant — see
         // GlobalHotkey. A refusal means another app owns the combination; the

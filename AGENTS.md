@@ -140,6 +140,7 @@ an earlier design. **Don't "fix" them without asking.**
 | Nothing in the app helps you disclose the recording | R4's remedy is the **visible indicator** and nothing more. A Disclosure button that copied a suggested line was built and removed the same day: consent law is jurisdictional and situational, so a canned sentence in a menubar app is either redundant for someone who knows their obligations or falsely reassuring for someone who doesn't — and the second failure is the one that matters. Working out how to get consent is the user's, not Plume's. |
 | The update check never updates anything, and says nothing when it fails | It sets one field; the menu bar shows a line **only** while an update exists, and clicking it opens the release page. No appcast, no EdDSA key, no self-replacing bundle — `brew upgrade` and a drag to /Applications already work. Unreachable, rate-limited and up-to-date are one answer (nil) on purpose: a failed check is not a problem the user has, and an unparseable tag must mean silence, never a permanent un-dismissable "update available". It is also the **only** non-localhost request Plume makes besides the first-run model download, so `update_check` gates the *request*, not the result. The one bypass is Settings' **Check now** (`honoringSetting: false`), because the press is the request — the same consent-by-click rule as the call-detection notification, and without it the button would answer "up to date" having asked nobody. Touching any of this puts the README's what-leaves-the-machine claim in scope. |
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Confirmed on a real 1:1 2026-08-17 — one remote speaker, no over-split. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
+| The recording panel's participant menu writes nothing to config | Deliberate, and it is what makes the count revert on its own. The override goes into that session's `meta.json` and nowhere else, so the *next* meeting reads `Config` because its folder has no override — there is no reset logic, no expiry and no sticky state, because there is nowhere for the value to persist. Absent key = pre-feature session = default-was-fine, correctly one case. The window it is editable in is real, not cosmetic: `stopSession` enqueues transcription immediately, so the cap is read at Stop — which is also why the control is on the recording panel and **not** in wrap-up, where it would silently do nothing. |
 
 Genuinely **not built yet** (different thing): Phase 7 Ask — now scoped as its own **global**
 surface with the per-meeting tab as the N=1 case, not a row and not only a tab (PROGRESS.md,
@@ -352,7 +353,7 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-17, after the setup and speaker-row pass.*
+*Last reviewed against the code: 2026-08-17, after the per-meeting participant count.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass does
 not happen, and a silently wrong constraint is worse than a missing one — the next agent will

@@ -68,6 +68,69 @@ struct MeetingPillView: View {
     }
 }
 
+/// How many people are in this meeting, for this meeting only.
+///
+/// In the header rather than the footer because it is not an action: it belongs
+/// with the red dot and the clock, which are the other facts about the recording,
+/// and it leaves the footer a clean two-verb bar where the prominent button is
+/// the one that ends the meeting.
+///
+/// A `Menu` rather than a `Stepper`: two small arrow targets in a floating panel
+/// are awkward mid-call, and 2 → 5 would be three clicks. Shown unconditionally
+/// and never hidden once it matches the default — a control that appears
+/// conditionally is one you never learn is there, and its whole value is being
+/// remembered at minute one.
+private struct ParticipantsMenu: View {
+    let controller: MeetingPanelController
+
+    /// Mirrors Settings' presets so the two surfaces name the same thing the
+    /// same way; 0 is the existing "unconstrained" case.
+    private static let presets = [2, 3, 4, 5, 6, 0]
+
+    private static func label(_ count: Int) -> String {
+        count == 0 ? "Any" : "\(count)"
+    }
+
+    private static func menuLabel(_ count: Int) -> String {
+        switch count {
+        case 0: return "Any number — larger or varied"
+        case 2: return "2 — a 1:1"
+        default: return "\(count) people"
+        }
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(Self.presets, id: \.self) { count in
+                Button {
+                    controller.setParticipants(count)
+                } label: {
+                    // Not a Picker: the checkmark is the whole state readout, and
+                    // a Picker inside a Menu renders its own label row we don't
+                    // want in a 12pt header.
+                    if count == controller.participants {
+                        Label(Self.menuLabel(count), systemImage: "checkmark")
+                    } else {
+                        Text(Self.menuLabel(count))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "person.2").font(.system(size: 10))
+                Text(Self.label(controller.participants))
+                    .font(.system(size: 11)).monospacedDigit()
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(.secondary)
+        .help("How many people are in this meeting, including you — helps split "
+            + "the far-end voices apart. This meeting only.")
+    }
+}
+
 /// Live notes during the call — a full editing surface, not a commit field.
 struct RecordingStripView: View {
     @Bindable var controller: MeetingPanelController
@@ -79,15 +142,23 @@ struct RecordingStripView: View {
                 PanelControls(
                     onClose: { controller.close() },
                     onCollapse: { controller.collapse() })
+                // The drag handle is the empty middle, not the whole header. The
+                // gesture cannot span the menu: a drag gesture on an ancestor of
+                // an interactive control is the same ambiguity that made the pill
+                // expand whenever you tried to move it, one level up.
                 Spacer()
-                Circle().fill(.red).frame(width: 8, height: 8)
-                Text(controller.elapsed)
-                    .font(.system(.body, design: .monospaced)).monospacedDigit().bold()
+                    .contentShape(Rectangle())
+                    .gesture(WindowDragGesture())
+                ParticipantsMenu(controller: controller)
+                // Inert, so they stay part of the handle.
+                HStack(spacing: 8) {
+                    Circle().fill(.red).frame(width: 8, height: 8)
+                    Text(controller.elapsed)
+                        .font(.system(.body, design: .monospaced)).monospacedDigit().bold()
+                }
+                .contentShape(Rectangle())
+                .gesture(WindowDragGesture())
             }
-            // The header is the drag handle, since the window is no longer
-            // movable by its background (that broke text selection).
-            .contentShape(Rectangle())
-            .gesture(WindowDragGesture())
 
             TextEditor(text: $controller.notes)
                 .focused($notesFocused)

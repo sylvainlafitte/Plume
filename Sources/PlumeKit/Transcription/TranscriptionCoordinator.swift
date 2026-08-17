@@ -21,6 +21,10 @@ actor TranscriptionCoordinator {
     private var draining = false
     private var engine: TranscriptionEngine?
     private var diarizer: Diarizing?
+    /// The cap baked into the cached `diarizer`'s config, meaningful only while
+    /// `diarizer` is non-nil. Held separately because the cap is fixed at
+    /// construction and cannot be read back out of the manager.
+    private var diarizerMaxSpeakers: Int?
     private var lastFailure: String?
     private var statusHandler: (@Sendable (Status) -> Void)?
 
@@ -110,6 +114,7 @@ actor TranscriptionCoordinator {
         engine = nil
         await diarizer?.release()
         diarizer = nil
+        diarizerMaxSpeakers = nil
         publish(lastFailure.map { .failed(session: $0) } ?? .idle)
         draining = false
         // An enqueue that landed between the loop exiting and the release
@@ -144,7 +149,10 @@ actor TranscriptionCoordinator {
             var attributed: [AttributedSegment]
             if track.speaker == .them {
                 do {
-                    let diarizer = try await preparedDiarizer()
+                    let diarizer = try await preparedDiarizer(
+                        maxSpeakers: Config.maxFarEndSpeakers(
+                            expected: meta.expectedParticipants),
+                        for: dir)
                     let turns = try await diarizer.diarize(audio)
                     let speakers = Set(turns.map(\.speakerId)).count
                     if turns.isEmpty {
@@ -289,11 +297,24 @@ actor TranscriptionCoordinator {
     /// so an idle Plume holds neither set of weights. The diarizer models are
     /// small (~21 MB) next to Parakeet's ~464 MB, but the lifecycle should be
     /// uniform — and at 16 GB the summarizer needs the room (docs/PLAN.md R5).
-    private func preparedDiarizer() async throws -> Diarizing {
-        if let diarizer { return diarizer }
-        let diarizer = OfflineDiarizer(maxSpeakers: Config.maxFarEndSpeakers())
+    /// - Parameter maxSpeakers: this session's cap. The cached instance is
+    ///   rebuilt when it differs, because the cap is baked into the config at
+    ///   construction: reusing a warm diarizer across two back-to-back meetings
+    ///   would otherwise apply the *first* meeting's cap to the second. That was
+    ///   invisible while the only source was `Config`, and is the normal path now
+    ///   that a meeting can carry its own count. A rebuild costs one ~21 MB model
+    ///   load, and only on the meetings where the number actually changed.
+    private func preparedDiarizer(maxSpeakers: Int?, for dir: URL) async throws -> Diarizing {
+        if let diarizer, diarizerMaxSpeakers == maxSpeakers { return diarizer }
+        if let stale = diarizer {
+            log(dir, "diarizer cap changed to \(maxSpeakers.map(String.init) ?? "none") — reloading")
+            await stale.release()
+            self.diarizer = nil
+        }
+        let diarizer = OfflineDiarizer(maxSpeakers: maxSpeakers)
         try await diarizer.prepare()
         self.diarizer = diarizer
+        self.diarizerMaxSpeakers = maxSpeakers
         return diarizer
     }
 
@@ -344,6 +365,11 @@ struct SessionMeta {
     let tracks: [Track]
     let startedAt: Date?
     let durationSeconds: Int?
+    /// Participant count chosen in the recording panel for this meeting only,
+    /// or nil to fall back to `Config.expectedParticipants()`. Tolerated absent
+    /// the same way `start_offset_ms` is — older sessions simply take the
+    /// default, which is what they were transcribed against anyway.
+    let expectedParticipants: Int?
 
     enum MetaError: Error, CustomStringConvertible {
         case unreadable(URL)
@@ -380,7 +406,8 @@ struct SessionMeta {
         return SessionMeta(
             tracks: tracks,
             startedAt: started,
-            durationSeconds: json["duration_seconds"] as? Int)
+            durationSeconds: json["duration_seconds"] as? Int,
+            expectedParticipants: json["expected_participants"] as? Int)
     }
 }
 

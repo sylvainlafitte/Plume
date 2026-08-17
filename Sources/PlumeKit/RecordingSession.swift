@@ -19,6 +19,12 @@ final class RecordingSession {
     let dir: URL
     let startedAt = Date()
 
+    /// Per-meeting participant count set from the recording panel, or nil to use
+    /// the configured default. Written into meta.json only when set, so an
+    /// absent key means both "recorded before this existed" and "the default was
+    /// right" — correctly the same case for the diarizer.
+    var expectedParticipants: Int?
+
     private let mic = MicRecorder()
     private let system = SystemAudioRecorder()
 
@@ -102,7 +108,7 @@ final class RecordingSession {
         let systemStart = system.firstBufferAt ?? startedAt
         let earliest = min(micStart, systemStart)
 
-        let meta: [String: Any] = [
+        var meta: [String: Any] = [
             "started": iso.string(from: startedAt),
             "ended": iso.string(from: ended),
             "duration_seconds": Int(ended.timeIntervalSince(startedAt)),
@@ -112,6 +118,9 @@ final class RecordingSession {
                 "system": Int(systemStart.timeIntervalSince(earliest) * 1000),
             ],
         ]
+        if let expectedParticipants {
+            meta["expected_participants"] = expectedParticipants
+        }
         if let data = try? JSONSerialization.data(
             withJSONObject: meta,
             options: [.prettyPrinted, .sortedKeys]
