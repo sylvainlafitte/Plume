@@ -121,4 +121,5 @@ recording and follow the laws that apply where you are.
 ## License
 
 MIT. See [LICENSE](LICENSE). Plume is a fork of [Quill](https://github.com/digimata/quill) —
-see [NOTICE](NOTICE) and [LICENSE-quill](LICENSE-quill).
+see [NOTICE](NOTICE) and [LICENSE-quill](LICENSE-quill). Some of the design was inspired by
+[OpenOats](https://github.com/yazinsai/OpenOats), which shares no code with Plume.
