@@ -179,7 +179,10 @@ TCC permissions for everyone who installed the previous one. Developer ID certs 
 5 per team. The notarization team id (324ZRWQHHV) is **not** the development cert's (99VBSLFB4T).
 
 **CI (`.github/workflows/ci.yml`) runs only what a clean runner can prove**: `swift test` plus a
-debug `build-app.sh` (ad-hoc signed, since there is no certificate there). Everything involving
+debug `build-app.sh` (ad-hoc signed, since there is no certificate there — a path that silently
+did not work for CI's first five runs, because `set -euo pipefail` turned the identity-detection
+`grep` finding nothing into an abort *before* the ad-hoc fallback; every `grep` in that script
+that is allowed to match nothing needs its `|| true`). Everything involving
 capture, models, Ollama or notarization stays a manual check — a red X that means nothing is worse
 than no check. It clones with `fetch-depth: 0` deliberately, so the `CFBundleVersion` stamp is a real
 commit count rather than the shallow clone's `1`.

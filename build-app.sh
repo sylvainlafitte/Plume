@@ -74,13 +74,19 @@ xattr -cr "$APP" 2>/dev/null || true
 # Switching between the two changes the DR, so expect one permission re-prompt.
 #
 # Override with PLUME_SIGN_ID, or set it to "-" to force ad-hoc.
+# Each `|| true` is load-bearing, not defensive noise. `grep` exits 1 when it
+# matches nothing, `set -o pipefail` promotes that to the pipeline's status, and
+# `set -e` then aborts the whole script — at the one moment the script is trying
+# to discover that there is no identity, which is the normal state of every CI
+# runner. Without it the build dies here, silently, straight after the build
+# number is printed and before the ad-hoc fallback below can be reached.
 if [ -z "${PLUME_SIGN_ID:-}" ]; then
     IDENTITIES="$(security find-identity -v -p codesigning 2>/dev/null || true)"
     PLUME_SIGN_ID="$(echo "$IDENTITIES" | grep -m1 'Developer ID Application' \
-        | sed -E 's/.*\) ([A-F0-9]{40}) .*/\1/')"
+        | sed -E 's/.*\) ([A-F0-9]{40}) .*/\1/' || true)"
     if [ -z "$PLUME_SIGN_ID" ]; then
         PLUME_SIGN_ID="$(echo "$IDENTITIES" | grep -m1 'Apple Development' \
-            | sed -E 's/.*\) ([A-F0-9]{40}) .*/\1/')"
+            | sed -E 's/.*\) ([A-F0-9]{40}) .*/\1/' || true)"
     fi
 fi
 if [ -n "${PLUME_SIGN_ID:-}" ] && [ "$PLUME_SIGN_ID" != "-" ]; then
