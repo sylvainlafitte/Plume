@@ -301,9 +301,6 @@ Source rules:
 
 ## Documentation and worktree handling
 
-- Copy this file to `docs/meeting-titles-plan.md` before implementation; this is the explicit
-  user-requested handoff artifact and the exception to the repository's normal avoidance of plan
-  registries.
 - Update `README.md` for naming during/after recording, readable folder names, inline Meetings title
   editing, the clock timestamp action, and whole-folder Trash behavior.
 - Update `AGENTS.md` in the same change: title lifecycle, safe move ownership, returned-URL
@@ -315,12 +312,11 @@ Source rules:
 
 ## Execution order
 
-1. Copy this reviewed plan to `docs/meeting-titles-plan.md`.
-2. Add metadata helpers, untitled parsing/migration, and lifecycle actor with isolated unit tests.
-3. Wire recording, transcription, summary work tokens, safe completion, and path notifications.
-4. Add shared title model state and `MeetingTitleEditor`.
-5. Rework recording header/footer and timestamp clock.
-6. Harden/decorate deletion behavior and tests.
-7. Update documentation.
-8. Run focused tests, then `swift test` and `swift build`.
+1. Add metadata helpers, untitled parsing/migration, and lifecycle actor with isolated unit tests.
+2. Wire recording, transcription, summary work tokens, safe completion, and path notifications.
+3. Add shared title model state and `MeetingTitleEditor`.
+4. Rework recording header/footer and timestamp clock.
+5. Harden/decorate deletion behavior and tests.
+6. Update documentation (and delete plan)
+7. Run focused tests, then `swift test` and `swift build`.
 
