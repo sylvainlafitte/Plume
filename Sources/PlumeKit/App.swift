@@ -77,9 +77,10 @@ public enum PlumeApp {
                             "  window \(progress.windowsDone + 1)/\(progress.windowsTotal)…\n".utf8))
                     }
                 }
+                let final = try MeetingSummaryFinalizer.finalize(session: session)
                 Swift.print(String(
-                    format: "done in %.1fs — summary written to meeting.md",
-                    Date().timeIntervalSince(started)))
+                    format: "done in %.1fs — summary written to %@/meeting.md",
+                    Date().timeIntervalSince(started), final.lastPathComponent))
             } catch {
                 FileHandle.standardError.write(Data("summarize failed: \(error)\n".utf8))
                 code = 1
@@ -198,6 +199,18 @@ final class AppController {
     private let historyWindow: HistoryWindowController
     private var session: RecordingSession?
     private var ticker: Timer?
+    private var summarizingSessions: Set<URL> = []
+
+    enum ActionError: Error, CustomStringConvertible {
+        case summaryInProgress
+
+        var description: String {
+            switch self {
+            case .summaryInProgress:
+                return "Wait for the current summary to finish before changing the title."
+            }
+        }
+    }
 
     init() {
         historyWindow = HistoryWindowController()
@@ -237,6 +250,46 @@ final class AppController {
         meetingPanel.onParticipantsChanged = { [weak self] count in
             self?.session?.expectedParticipants = count
         }
+        meetingPanel.onTitleChanged = { [weak self] title in
+            self?.session?.userTitle = title
+        }
+        let commitTitle: (URL, String) throws -> String? = { [weak self] session, title in
+            guard let self else { return nil }
+            return try self.commitTitle(title, to: session)
+        }
+        meetingPanel.onCommitStoredTitle = commitTitle
+        historyWindow.onCommitTitle = commitTitle
+        let beginSummary: (URL) -> Bool = { [weak self] session in
+            self?.beginSummary(session) ?? false
+        }
+        let endSummary: (URL) -> Void = { [weak self] session in
+            self?.summarizingSessions.remove(session)
+        }
+        let isBusy: (URL) -> Bool = { [weak self] session in
+            self?.summarizingSessions.contains(session) ?? false
+        }
+        meetingPanel.onBeginSummary = beginSummary
+        historyWindow.onBeginSummary = beginSummary
+        meetingPanel.onEndSummary = endSummary
+        historyWindow.onEndSummary = endSummary
+        meetingPanel.onIsSessionBusy = isBusy
+        historyWindow.onIsSessionBusy = isBusy
+        historyWindow.onDeleteBlocked = { [weak self] session in
+            guard let self else { return nil }
+            if self.summarizingSessions.contains(session) {
+                return "Summary generation is still in progress."
+            }
+            return nil
+        }
+        historyWindow.onPrepareDelete = { [weak self] session in
+            self?.meetingPanel.releaseSessionForDeletion(session)
+        }
+        let finalizeSummary: (URL) throws -> URL = { [weak self] session in
+            guard let self else { return session }
+            return try self.finalizeSummary(session)
+        }
+        meetingPanel.onFinalizeSummary = finalizeSummary
+        historyWindow.onFinalizeSummary = finalizeSummary
 
         // ⌥⌘R from anywhere. Carbon, so it needs no Accessibility grant — see
         // GlobalHotkey. A refusal means another app owns the combination; the
@@ -374,19 +427,46 @@ final class AppController {
 
     private func stopSession() {
         guard let session else { return }
-        session.stop()
         let elapsed = state.elapsedText ?? "0:00"
-        Log.write("○ stopped · \(elapsed) · \(session.dir.path)")
         self.session = nil
         ticker?.invalidate()
         ticker = nil
         state.recording = .idle
+        do {
+            try session.stop()
+        } catch {
+            Log.write("recording finalization failed · \(session.dir.path) · \(error)")
+            state.report("recording finalization failed: \(error)")
+            meetingPanel.recordingFinalizationFailed(error)
+            return
+        }
+        Log.write("○ stopped · \(elapsed) · \(session.dir.path)")
         // The panel stays up and expands: the meeting isn't over for the user
         // just because the recording is.
         meetingPanel.stoppedRecording()
 
         let dir = session.dir
         Task { [transcription] in await transcription.enqueue(dir) }
+    }
+
+    private func finalizeSummary(_ session: URL) throws -> URL {
+        meetingPanel.flushNotes(ifReferencing: session)
+        historyWindow.flushNotes(ifReferencing: session)
+        let final = try MeetingSummaryFinalizer.finalize(session: session)
+        meetingPanel.adoptSession(from: session, to: final)
+        historyWindow.adoptSession(from: session, to: final)
+        return final
+    }
+
+    private func beginSummary(_ session: URL) -> Bool {
+        summarizingSessions.insert(session).inserted
+    }
+
+    private func commitTitle(_ title: String, to session: URL) throws -> String? {
+        guard !summarizingSessions.contains(session) else {
+            throw ActionError.summaryInProgress
+        }
+        return try MeetingTitleStore.setUserTitle(title, in: session)
     }
 
 

@@ -43,6 +43,8 @@ protocol MeetingDetailModel: AnyObject, Observable, Sendable {
     var canSummarize: Bool { get }
     /// Why summarizing is unavailable, if it is. Nil when it's available.
     var blockedReason: String? { get }
+    var meetingTitle: String? { get }
+    var canEditTitle: Bool { get }
 
     // Settable so the shared driver below can own the summarize path. Both
     // surfaces ran their own copy of it and had diverged on the failure case.
@@ -57,9 +59,12 @@ protocol MeetingDetailModel: AnyObject, Observable, Sendable {
     var session: URL? { get }
     /// Debounced notes must reach disk before the summariser reads the document.
     func flushNotes()
-    /// Surface-specific epilogue, given the session URL the engine returned —
-    /// which differs from the one passed in when deriving a title renamed the
-    /// folder. The panel retires the meeting to history; the history window
+    func commitTitle(_ title: String)
+    func beginSummary(session: URL) -> Bool
+    func endSummary(session: URL)
+    func finalizeSummary(session: URL) throws -> URL
+    /// Surface-specific epilogue after caller finalization returns the exact
+    /// folder URL. The panel retires the meeting to history; the history window
     /// rebuilds its list around it.
     func summarizingFinished(session: URL)
 
@@ -81,6 +86,10 @@ extension MeetingDetailModel {
     /// exists to prevent, so the panel's behaviour is the one kept.
     func runSummarize(engine: SummaryEngine) {
         guard let session, !isGenerating else { return }
+        guard beginSummary(session: session) else {
+            detailError = "This meeting is already being summarized."
+            return
+        }
         flushNotes()
         detailTab = .summary
         isGenerating = true
@@ -106,16 +115,19 @@ extension MeetingDetailModel {
 
         Task { [weak self] in
             do {
-                let final = try await engine.summarize(
+                try await engine.summarize(
                     session: session, template: template, onProgress: report)
-                await MainActor.run { [weak self] in
+                try await MainActor.run { [weak self] in
                     guard let self else { return }
+                    defer { self.endSummary(session: session) }
+                    let final = try self.finalizeSummary(session: session)
                     self.isGenerating = false
                     self.summarizingFinished(session: final)
                 }
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self else { return }
+                    self.endSummary(session: session)
                     self.isGenerating = false
                     self.detailError = "\(error)"
                     // The previous summary is untouched on disk (invariant 2).

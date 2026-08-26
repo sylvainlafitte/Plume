@@ -45,6 +45,9 @@ struct MeetingIdentity: Codable, Sendable, Equatable {
 ///   3. turn adjacency after a direct address
 ///   4. names written in the attendee's notes — who was there, but not who spoke
 enum MeetingIdentityDeriver {
+    /// Keep the existing readable 60-character budget, but enforce it in bytes
+    /// so a non-ASCII title cannot exceed what the old limit intended.
+    private static let slugByteLimit = 60
 
     /// Constrained decoding. Beyond reliable parsing, a schema bounds the
     /// injection surface: a response that must match this shape cannot wander
@@ -128,6 +131,14 @@ enum MeetingIdentityDeriver {
         let collapsed = String(allowed)
             .split(separator: "-", omittingEmptySubsequences: true)
             .joined(separator: "-")
-        return String(collapsed.prefix(60))
+        var bytes = 0
+        var bounded = ""
+        for character in collapsed {
+            let width = String(character).utf8.count
+            guard bytes + width <= slugByteLimit else { break }
+            bounded.append(character)
+            bytes += width
+        }
+        return bounded
     }
 }

@@ -4,16 +4,28 @@ import Foundation
 struct MeetingEntry: Identifiable, Equatable, Sendable {
     var id: URL { url }
     let url: URL
-    let title: String
+    let title: String?
     let started: Date?
     let durationSeconds: Int?
     let stage: SessionState.Stage
     let blocker: SessionState.Blocker?
+    let isOwnedByThisMachine: Bool
     let hasSummary: Bool
 
     /// Transcribed but never summarized. Normal, not an error — summarizing is
     /// human-triggered — but worth surfacing so a meeting doesn't quietly rot.
     var awaitingSummary: Bool { stage == .transcribed && blocker == nil }
+
+    var displayTitle: String { title ?? "Add title" }
+
+    var confirmationName: String {
+        if let title { return title }
+        guard let started else { return "Untitled meeting" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: started)
+    }
 
     var subtitle: String {
         var parts: [String] = []
@@ -36,7 +48,8 @@ struct MeetingEntry: Identifiable, Equatable, Sendable {
 ///
 /// The folder *is* the database — there is no index to keep in sync, which is
 /// the whole point of one markdown file per meeting. Scanning reads only each
-/// file's frontmatter block, so a folder of long transcripts stays cheap.
+/// file's frontmatter block (plus metadata before a transcript exists), so a
+/// folder of long transcripts stays cheap.
 enum MeetingLibrary {
 
     static func entries(in root: URL) -> [MeetingEntry] {
@@ -58,15 +71,23 @@ enum MeetingLibrary {
         let meeting = url.appendingPathComponent("meeting.md")
         let frontmatter = readFrontmatter(at: meeting)
         let values = Dictionary(frontmatter, uniquingKeysWith: { first, _ in first })
+        let metadata = readMetadata(in: url)
+        let metadataTitle = metadata?[MeetingTitleStore.metadataKey] as? String
+        let startedValue = values["started"] ?? metadata?["started"] as? String
+        let duration = values["duration_s"].flatMap(Int.init)
+            ?? metadata?["duration_seconds"] as? Int
 
         return MeetingEntry(
             url: url,
-            title: values["title"].flatMap { $0.isEmpty ? nil : $0 }
-                ?? url.lastPathComponent,
-            started: values["started"].flatMap(parseDate),
-            durationSeconds: values["duration_s"].flatMap(Int.init),
+            title: MeetingTitleStore.title(
+                frontmatter: frontmatter,
+                metadataTitle: metadataTitle,
+                folderName: url.lastPathComponent),
+            started: startedValue.flatMap(parseDate),
+            durationSeconds: duration,
             stage: state.stage,
             blocker: state.blocker,
+            isOwnedByThisMachine: state.isOwnedByThisMachine,
             hasSummary: state.stage == .summarized
         )
     }
@@ -79,6 +100,15 @@ enum MeetingLibrary {
         // Frontmatter is a handful of short lines; 4 KB is generous.
         let head = (try? handle.read(upToCount: 4096)) ?? Data()
         return MeetingDocument.frontmatter(in: String(decoding: head, as: UTF8.self))
+    }
+
+    private static func readMetadata(in session: URL) -> [String: Any]? {
+        let url = SessionState.directory(in: session).appendingPathComponent("meta.json")
+        guard
+            let data = try? Data(contentsOf: url),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return object
     }
 
     private static func parseDate(_ value: String) -> Date? {

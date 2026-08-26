@@ -9,6 +9,16 @@ import Foundation
 /// has been deleted — so "transcribed but not summarized" must be a resumable
 /// resting state rather than an error or a dead end.
 struct SessionState: Codable, Equatable, Sendable {
+    enum StateError: Error, CustomStringConvertible {
+        case missingSession(URL)
+
+        var description: String {
+            switch self {
+            case .missingSession(let url):
+                return "session folder no longer exists: \(url.path)"
+            }
+        }
+    }
 
     /// Only states that are durable and distinguishable on disk.
     ///
@@ -148,27 +158,45 @@ struct SessionState: Codable, Equatable, Sendable {
     func save(to session: URL) throws {
         try FileManager.default.createDirectory(
             at: Self.directory(in: session), withIntermediateDirectories: true)
+        try write(to: Self.url(in: session))
+    }
+
+    private func saveExisting(to session: URL) throws {
+        let directory = Self.directory(in: session)
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            throw StateError.missingSession(session)
+        }
+        try write(to: Self.url(in: session))
+    }
+
+    private func write(to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(self).write(to: Self.url(in: session), options: .atomic)
+        try encoder.encode(self).write(to: url, options: .atomic)
     }
 
     /// Record progress. Advancing clears any blocker — the thing that was stuck
     /// evidently succeeded.
     static func advance(_ session: URL, to stage: Stage) throws {
+        guard FileManager.default.fileExists(atPath: session.path) else {
+            throw StateError.missingSession(session)
+        }
         var state = load(from: session) ?? SessionState()
         state.stage = stage
         state.blocker = nil
         state.updated = Date()
-        try state.save(to: session)
+        try state.saveExisting(to: session)
     }
 
     /// Record a blocker without losing the stage already reached.
     static func block(_ session: URL, with blocker: Blocker) throws {
+        guard FileManager.default.fileExists(atPath: session.path) else {
+            throw StateError.missingSession(session)
+        }
         var state = load(from: session) ?? SessionState()
         state.blocker = blocker
         state.updated = Date()
-        try state.save(to: session)
+        try state.saveExisting(to: session)
     }
 }

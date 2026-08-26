@@ -3,15 +3,16 @@ import Testing
 
 @testable import PlumeKit
 
-@Suite("Meeting rename and delete")
+@Suite("Meeting folder admin")
 struct MeetingAdminTests {
 
-    /// A session folder with a meeting.md, as the pipeline leaves it.
     private func makeSession(named name: String, title: String) throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
         let url = root.appendingPathComponent(name, isDirectory: true)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: SessionState.directory(in: url), withIntermediateDirectories: true)
+        try SessionState(stage: .summarized).save(to: url)
         try MeetingDocument.write(
             MeetingDocument.render(
                 frontmatter: [("plume", "1"), ("title", title)],
@@ -20,29 +21,14 @@ struct MeetingAdminTests {
         return url
     }
 
-    @Test("renaming sets the title, marks it human, and moves the folder")
-    func renameMovesFolder() throws {
-        let session = try makeSession(named: "2026-08-14-1400-old-name", title: "Old name")
+    @Test("summary-boundary rename preserves the timestamp and document")
+    func renameFolder() throws {
+        let session = try makeSession(named: "2026-08-14-1400-old-name", title: "Pricing review")
         defer { try? FileManager.default.removeItem(at: session.deletingLastPathComponent()) }
 
-        let renamed = try MeetingAdmin.rename(session: session, to: "Pricing review")
+        let renamed = MeetingAdmin.renameFolder(session, toSlugOf: "Pricing review")
 
-        // The timestamp prefix is load-bearing: the list sorts on it and
-        // renamed sessions are located by matching it.
         #expect(renamed.lastPathComponent == "2026-08-14-1400-pricing-review")
-        let document = try String(
-            contentsOf: renamed.appendingPathComponent("meeting.md"), encoding: .utf8)
-        #expect(MeetingDocument.frontmatter(in: document)
-            .first { $0.0 == "title" }?.1 == "Pricing review")
-        #expect(MeetingAdmin.isUserTitled(document))
-    }
-
-    @Test("renaming leaves every region untouched")
-    func renameIsSurgical() throws {
-        let session = try makeSession(named: "2026-08-14-1400-x", title: "X")
-        defer { try? FileManager.default.removeItem(at: session.deletingLastPathComponent()) }
-
-        let renamed = try MeetingAdmin.rename(session: session, to: "Y")
         let document = try String(
             contentsOf: renamed.appendingPathComponent("meeting.md"), encoding: .utf8)
         #expect(try MeetingDocument.read(.notes, from: document) == "- mine")
@@ -50,59 +36,53 @@ struct MeetingAdminTests {
         #expect(try MeetingDocument.read(.transcript, from: document) == "**[0:00] me:** hi")
     }
 
-    @Test("an auto-derived title never overwrites one a person typed")
-    func userTitleWins() throws {
-        // The whole point of the marker: without it the next Regenerate would
-        // silently undo the rename.
-        let session = try makeSession(named: "2026-08-14-1400-x", title: "X")
-        defer { try? FileManager.default.removeItem(at: session.deletingLastPathComponent()) }
-
-        let renamed = try MeetingAdmin.rename(session: session, to: "Mine")
-        #expect(MeetingAdmin.isUserTitled(session: renamed))
-
-        // A meeting that was never renamed stays fair game for auto-titling.
-        let fresh = try makeSession(named: "2026-08-14-1500-y", title: "Y")
-        defer { try? FileManager.default.removeItem(at: fresh.deletingLastPathComponent()) }
-        #expect(!MeetingAdmin.isUserTitled(session: fresh))
-    }
-
     @Test("a colliding folder name is disambiguated, never merged into")
     func collisionIsDisambiguated() throws {
-        let session = try makeSession(named: "2026-08-14-1400-a", title: "A")
+        let session = try makeSession(named: "2026-08-14-1400-a", title: "Standup")
         let parent = session.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: parent) }
-        // Another meeting from the same minute that already owns the slug.
         try FileManager.default.createDirectory(
             at: parent.appendingPathComponent("2026-08-14-1400-standup"),
             withIntermediateDirectories: true)
 
-        let renamed = try MeetingAdmin.rename(session: session, to: "Standup")
+        let renamed = MeetingAdmin.renameFolder(session, toSlugOf: "Standup")
         #expect(renamed.lastPathComponent == "2026-08-14-1400-standup-2")
-        // The squatter is untouched.
         #expect(FileManager.default.fileExists(
             atPath: parent.appendingPathComponent("2026-08-14-1400-standup").path))
     }
 
-    @Test("an empty title is refused rather than blanking the meeting")
-    func emptyTitleRefused() throws {
-        let session = try makeSession(named: "2026-08-14-1400-x", title: "X")
-        defer { try? FileManager.default.removeItem(at: session.deletingLastPathComponent()) }
-        #expect(throws: MeetingAdmin.AdminError.emptyTitle) {
-            try MeetingAdmin.rename(session: session, to: "   ")
-        }
-    }
-
     @Test("a title with no slug-able characters keeps the folder name")
     func unsluggableTitleKeepsFolder() throws {
-        let session = try makeSession(named: "2026-08-14-1400-x", title: "X")
+        let session = try makeSession(named: "2026-08-14-1400-x", title: "???")
         defer { try? FileManager.default.removeItem(at: session.deletingLastPathComponent()) }
+        #expect(MeetingAdmin.renameFolder(session, toSlugOf: "???") == session)
+    }
 
-        let renamed = try MeetingAdmin.rename(session: session, to: "???")
-        #expect(renamed == session)
-        // The title still lands, even though the folder can't carry it.
-        let document = try String(
-            contentsOf: renamed.appendingPathComponent("meeting.md"), encoding: .utf8)
-        #expect(MeetingDocument.frontmatter(in: document).first { $0.0 == "title" }?.1 == "???")
+    @Test("folder slugs respect the UTF-8 byte budget")
+    func unicodeSlugBudget() {
+        let slug = MeetingIdentityDeriver.slug(String(repeating: "é", count: 300))
+        #expect(slug.utf8.count <= 229)
+        #expect(String(data: Data(slug.utf8), encoding: .utf8) == slug)
+    }
+
+    @Test("Trash receives and moves the complete session folder")
+    func trashMovesWholeSession() throws {
+        let session = try makeSession(named: "2026-08-14-1400-x", title: "X")
+        let root = session.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let trash = root.appendingPathComponent("Trash", isDirectory: true)
+        try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+        let destination = trash.appendingPathComponent(session.lastPathComponent, isDirectory: true)
+
+        try MeetingAdmin.trash(session: session) {
+            try FileManager.default.moveItem(at: $0, to: destination)
+        }
+
+        #expect(!FileManager.default.fileExists(atPath: session.path))
+        #expect(FileManager.default.fileExists(
+            atPath: destination.appendingPathComponent("meeting.md").path))
+        #expect(FileManager.default.fileExists(
+            atPath: SessionState.url(in: destination).path))
     }
 
     @Test("setting a frontmatter key that isn't there appends it")
