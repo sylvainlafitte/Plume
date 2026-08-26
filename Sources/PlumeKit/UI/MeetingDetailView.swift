@@ -189,17 +189,50 @@ private enum SummaryBackend: Equatable {
     }
 }
 
+/// A neutral segmented control, so Summarise remains the detail view's only
+/// accented action. Both tabs divide the available width rather than hugging
+/// their labels.
+private struct MeetingTabPicker: View {
+    @Binding var selection: MeetingTab
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(MeetingTab.allCases) { tab in
+                let isSelected = selection == tab
+                Button {
+                    selection = tab
+                } label: {
+                    Text(tab.rawValue)
+                        .font(.callout)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(isSelected ? Color.black : Color.primary)
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(.white)
+                            .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
+                    }
+                }
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .frame(maxWidth: .infinity)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
+    }
+}
+
 struct MeetingDetailView<Model: MeetingDetailModel>: View {
     @Bindable var model: Model
     @State private var backend: SummaryBackend = .checking
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Picker("", selection: $model.detailTab) {
-                ForEach(MeetingTab.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            MeetingTabPicker(selection: $model.detailTab)
 
             switch model.detailTab {
             case .notes: notesTab

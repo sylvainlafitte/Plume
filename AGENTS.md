@@ -142,7 +142,7 @@ an earlier design. **Don't "fix" them without asking.**
 | No in-app markdown editor | Declined. The files are markdown in a folder and every Mac has a good editor. |
 | The panel opens on Notes but Meetings opens on Summary | Deliberate, not an inconsistency. The panel is where you *write* a record; the window is where you *read* one. Fixed per surface, never per meeting — a default that varied with the selection would make the tab jump as you scroll the list. |
 | Summarize sits below the tabs, not inside Notes | So the default tab isn't load-bearing: the action stays reachable from either tab. It also leaves the bottom edge free for a future per-meeting Ask tab. |
-| A recording starts as the pill, and both expanded modes share one resizable frame | Reversed together. Two fixed sizes (340×300 recording, 430×580 wrap-up) assumed a live call wanted a smaller footprint — moot once the panel is only on screen when you deliberately open it. Collapse and expand must **pivot on the same corner**, or a round-trip drifts the pill by the difference in size. Top-right is only the *preferred* corner: `PanelAnchor` flips an axis when expanding from it would run off the screen, and the chosen corner is stored until the next expand — re-deriving it at collapse time is what makes the pill wander (covered by `PanelAnchorTests`). |
+| A recording starts expanded, and both expanded modes share one resizable frame | The title and notes are ready at the start of the call; collapse remains an explicit choice when the panel is in the way. Two fixed sizes (340×300 recording, 430×580 wrap-up) assumed a live call wanted a smaller footprint, but the same editing surface is useful on both sides of Stop. Collapse and expand must **pivot on the same corner**, or a round-trip drifts the pill by the difference in size. Top-right is only the *preferred* corner: `PanelAnchor` flips an axis when expanding from it would run off the screen, and the chosen corner is stored until the next expand — re-deriving it at collapse time is what makes the pill wander (covered by `PanelAnchorTests`). |
 | Two echo settings, not one | Different points in the pipeline and not interchangeable: `transcript_echo_filter` removes duplicates from the finished transcript (safe, default on), `mic_voice_processing` stops the echo reaching the recording but makes macOS duck all other audio for the whole meeting. Presented together, weaker one first. |
 | No UI for the vocabulary file, and it cannot fix the transcript | Both deliberate. `Vocabulary.md` is a markdown file beside `Templates/` — same premise, edited in your own editor. And it is read at *summary* time: Parakeet exposes no biasing hook (FluidAudio's `vocabulary` is the model's own token table), so a misheard term is already in the transcript, whose audio is gone. The glossary makes the **summary** spell it right; rewriting the transcript from it was rejected as invariant-1 territory. |
 | No Dock icon, and windows aren't in ⌘-Tab | Accessory apps are absent from ⌘-Tab **by rule**, not by window configuration — the only lever is `NSApp.setActivationPolicy(.regular)`, which brings a Dock icon and a real menu bar. Declined 2026-08-15. Windows are reached from the menu bar. |
@@ -261,10 +261,11 @@ Four more rules the panel depends on, none of them enforced by anything:
   carry an explicit `WindowDragGesture()` instead.
 - The pill is **not a `Button`** — a Button treats a drag as a click, so it expanded whenever
   you tried to move it. Plain view + drag gesture + tap gesture.
-- The hosting view overrides `acceptsFirstMouse`, and the recording panel calls `makeKey()`
-  *without* `NSApp.activate`. A non-activating panel isn't key until clicked, so otherwise the
-  first click only raises it and the second reaches the field — and `@FocusState` cannot focus
-  anything in a window that isn't key.
+- The hosting view overrides `acceptsFirstMouse`, and an explicitly expanded recording panel calls
+  `makeKey()` *without* `NSApp.activate`. The initial expanded presentation deliberately does not
+  take key, so starting with the hotkey cannot redirect typing from the active app. On the first
+  click AppKit makes the panel key, and `acceptsFirstMouse` ensures that same click reaches the
+  field instead of merely raising the window.
 - `hosting.sizingOptions = []`, or SwiftUI's intrinsic size snaps the window back after every
   resize. **Window metrics generally lose to the hosting view:** `minSize`/`contentMinSize` are
   set and still ignored once it is installed, so the floor is enforced in `windowWillResize` —
@@ -377,8 +378,8 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-26, after meeting titles and summary-boundary folder
-finalization shipped.*
+*Last reviewed against the code: 2026-08-26, after the recording panel and shared meeting-detail
+controls were refined.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass does
 not happen, and a silently wrong constraint is worse than a missing one — the next agent will

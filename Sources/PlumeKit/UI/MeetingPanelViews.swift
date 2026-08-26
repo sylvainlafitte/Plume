@@ -293,11 +293,23 @@ struct SpeakerListView: View {
     /// — reading as if the rename hadn't taken. Editing is now a state, and the
     /// field gets the whole row's width while it lasts.
     @State private var editing: String?
+    private static let maxRowsHeight: CGFloat = 160
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Speakers").font(.caption).foregroundStyle(.secondary)
 
+            if rows.count > 3 {
+                ScrollView { rowsView }
+                    .frame(maxHeight: Self.maxRowsHeight)
+            } else {
+                rowsView
+            }
+        }
+    }
+
+    private var rowsView: some View {
+        LazyVStack(alignment: .leading, spacing: 8) {
             ForEach(rows) { row in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
@@ -370,6 +382,7 @@ struct SpeakerListView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// A row is named once its label is no longer one diarization produced.

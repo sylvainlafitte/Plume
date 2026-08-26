@@ -68,8 +68,9 @@ cd Plume
 
 ## Use it
 
-Start a recording from the menu bar or press `⌥⌘R`. Click the pill to expand it, add a title and
-write notes. Click the recording clock—or press `⌘T`—to insert the current time into Notes.
+Start a recording from the menu bar or press `⌥⌘R`. The recording panel opens ready for a title
+and notes; collapse it to the pill when you want it out of the way. Click the recording clock—or
+press `⌘T`—to insert the current time into Notes.
 
 Stop the recording, add any final thoughts, choose a template, and press **Summarise**. Plume
 transcribes the meeting and writes the notes, summary and transcript to:

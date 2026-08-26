@@ -112,12 +112,10 @@ final class MeetingPanelController: MeetingDetailModel {
         // Back to the configured default: last meeting's count was last
         // meeting's, and re-reading Config picks up an edit to the file too.
         participants = Config.expectedParticipants()
-        // Starts collapsed. Most of a call is spent not writing anything, and
-        // the notes field is one click away — whereas a strip that appears
-        // unbidden over a call has to be dismissed before it earns its place.
-        // Expanding is what `focus()` does, so the menu bar and the pill both
-        // reach the same state.
-        show(.pill)
+        // Start ready for the title and notes people usually add at the beginning
+        // of a call, but do not redirect typing from the app where the recording
+        // was started. The first click still reaches the field.
+        show(.recording, makeKey: false)
     }
 
     func tick() {
@@ -215,8 +213,8 @@ final class MeetingPanelController: MeetingDetailModel {
         panel.focus()
     }
 
-    private func show(_ mode: MeetingPanel.Mode) {
-        panel.show(mode, content: content(for: mode))
+    private func show(_ mode: MeetingPanel.Mode, makeKey: Bool = true) {
+        panel.show(mode, content: content(for: mode), makeKey: makeKey)
     }
 
     @ViewBuilder
