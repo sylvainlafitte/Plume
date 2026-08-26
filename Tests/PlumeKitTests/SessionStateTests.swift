@@ -88,6 +88,7 @@ struct SessionStateTests {
         let session = tempSession()
         defer { try? FileManager.default.removeItem(at: session) }
 
+        try SessionState().save(to: session)
         try SessionState.block(session, with: .failed(stage: .recorded, message: "boom"))
         #expect(SessionState.load(from: session)?.blocker != nil)
 
@@ -102,6 +103,7 @@ struct SessionStateTests {
         let session = tempSession()
         defer { try? FileManager.default.removeItem(at: session) }
 
+        try SessionState().save(to: session)
         try SessionState.advance(session, to: .transcribed)
         try SessionState.block(session, with: .failed(stage: .transcribed, message: "ollama down"))
 
@@ -116,6 +118,17 @@ struct SessionStateTests {
     func stageOrdering() {
         #expect(SessionState.Stage.recorded < .transcribed)
         #expect(SessionState.Stage.transcribed < .summarized)
+    }
+
+    @Test("progress updates never recreate a session moved to the Trash")
+    func missingSessionIsNotRecreated() throws {
+        let session = tempSession()
+        try FileManager.default.removeItem(at: session)
+
+        #expect(throws: SessionState.StateError.self) {
+            try SessionState.advance(session, to: .transcribed)
+        }
+        #expect(!FileManager.default.fileExists(atPath: session.path))
     }
 
     @Test("state is written inside .plume, not beside meeting.md")

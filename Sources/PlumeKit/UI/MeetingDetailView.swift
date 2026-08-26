@@ -43,6 +43,8 @@ protocol MeetingDetailModel: AnyObject, Observable, Sendable {
     var canSummarize: Bool { get }
     /// Why summarizing is unavailable, if it is. Nil when it's available.
     var blockedReason: String? { get }
+    var meetingTitle: String? { get }
+    var canEditTitle: Bool { get }
 
     // Settable so the shared driver below can own the summarize path. Both
     // surfaces ran their own copy of it and had diverged on the failure case.
@@ -57,9 +59,12 @@ protocol MeetingDetailModel: AnyObject, Observable, Sendable {
     var session: URL? { get }
     /// Debounced notes must reach disk before the summariser reads the document.
     func flushNotes()
-    /// Surface-specific epilogue, given the session URL the engine returned —
-    /// which differs from the one passed in when deriving a title renamed the
-    /// folder. The panel retires the meeting to history; the history window
+    func commitTitle(_ title: String)
+    func beginSummary(session: URL) -> Bool
+    func endSummary(session: URL)
+    func finalizeSummary(session: URL) throws -> URL
+    /// Surface-specific epilogue after caller finalization returns the exact
+    /// folder URL. The panel retires the meeting to history; the history window
     /// rebuilds its list around it.
     func summarizingFinished(session: URL)
 
@@ -81,6 +86,10 @@ extension MeetingDetailModel {
     /// exists to prevent, so the panel's behaviour is the one kept.
     func runSummarize(engine: SummaryEngine) {
         guard let session, !isGenerating else { return }
+        guard beginSummary(session: session) else {
+            detailError = "This meeting is already being summarized."
+            return
+        }
         flushNotes()
         detailTab = .summary
         isGenerating = true
@@ -106,16 +115,19 @@ extension MeetingDetailModel {
 
         Task { [weak self] in
             do {
-                let final = try await engine.summarize(
+                try await engine.summarize(
                     session: session, template: template, onProgress: report)
-                await MainActor.run { [weak self] in
+                try await MainActor.run { [weak self] in
                     guard let self else { return }
+                    defer { self.endSummary(session: session) }
+                    let final = try self.finalizeSummary(session: session)
                     self.isGenerating = false
                     self.summarizingFinished(session: final)
                 }
             } catch {
                 await MainActor.run { [weak self] in
                     guard let self else { return }
+                    self.endSummary(session: session)
                     self.isGenerating = false
                     self.detailError = "\(error)"
                     // The previous summary is untouched on disk (invariant 2).
@@ -177,17 +189,50 @@ private enum SummaryBackend: Equatable {
     }
 }
 
+/// A neutral segmented control, so Summarise remains the detail view's only
+/// accented action. Both tabs divide the available width rather than hugging
+/// their labels.
+private struct MeetingTabPicker: View {
+    @Binding var selection: MeetingTab
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(MeetingTab.allCases) { tab in
+                let isSelected = selection == tab
+                Button {
+                    selection = tab
+                } label: {
+                    Text(tab.rawValue)
+                        .font(.callout)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(isSelected ? Color.black : Color.primary)
+                .background {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(.white)
+                            .shadow(color: .black.opacity(0.12), radius: 1, y: 1)
+                    }
+                }
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .frame(maxWidth: .infinity)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 7))
+    }
+}
+
 struct MeetingDetailView<Model: MeetingDetailModel>: View {
     @Bindable var model: Model
     @State private var backend: SummaryBackend = .checking
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Picker("", selection: $model.detailTab) {
-                ForEach(MeetingTab.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            MeetingTabPicker(selection: $model.detailTab)
 
             switch model.detailTab {
             case .notes: notesTab

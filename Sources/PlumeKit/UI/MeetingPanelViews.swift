@@ -17,7 +17,7 @@ private struct PanelControls: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Close the panel (⌘W) — reopen from the menu bar")
+            .help("Close the panel (⌘W)")
             .keyboardShortcut("w", modifiers: .command)
 
             Button(action: onCollapse) {
@@ -69,11 +69,6 @@ struct MeetingPillView: View {
 }
 
 /// How many people are in this meeting, for this meeting only.
-///
-/// In the header rather than the footer because it is not an action: it belongs
-/// with the red dot and the clock, which are the other facts about the recording,
-/// and it leaves the footer a clean two-verb bar where the prominent button is
-/// the one that ends the meeting.
 ///
 /// A `Menu` rather than a `Stepper`: two small arrow targets in a floating panel
 /// are awkward mid-call, and 2 → 5 would be three clicks. Shown unconditionally
@@ -131,6 +126,42 @@ private struct ParticipantsMenu: View {
     }
 }
 
+private struct RecordingClockTarget: View {
+    let controller: MeetingPanelController
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Group {
+                if isHovered {
+                    Image(systemName: "plus")
+                        .font(.system(size: 9, weight: .bold))
+                } else {
+                    Circle().fill(.red).frame(width: 8, height: 8)
+                }
+            }
+            .frame(width: 8, height: 8)
+            Text(controller.elapsed)
+                .font(.system(.body, design: .monospaced))
+                .monospacedDigit()
+                .bold()
+                .underline(isHovered)
+        }
+        .frame(width: 82, alignment: .trailing)
+        .contentShape(Rectangle())
+        .gesture(WindowDragGesture())
+        .onTapGesture { controller.insertStamp() }
+        .onHover { isHovered = $0 }
+        .help("Drag to move · click to insert the current time (⌘T)")
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Insert timestamp")
+        .accessibilityValue(controller.elapsed)
+        .accessibilityHint("Inserts the current meeting time into Notes")
+        .accessibilityAction { controller.insertStamp() }
+    }
+}
+
 /// Live notes during the call — a full editing surface, not a commit field.
 struct RecordingStripView: View {
     @Bindable var controller: MeetingPanelController
@@ -138,27 +169,27 @@ struct RecordingStripView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                PanelControls(
-                    onClose: { controller.close() },
-                    onCollapse: { controller.collapse() })
-                // The drag handle is the empty middle, not the whole header. The
-                // gesture cannot span the menu: a drag gesture on an ancestor of
-                // an interactive control is the same ambiguity that made the pill
-                // expand whenever you tried to move it, one level up.
-                Spacer()
-                    .contentShape(Rectangle())
-                    .gesture(WindowDragGesture())
-                ParticipantsMenu(controller: controller)
-                // Inert, so they stay part of the handle.
+            GeometryReader { geometry in
                 HStack(spacing: 8) {
-                    Circle().fill(.red).frame(width: 8, height: 8)
-                    Text(controller.elapsed)
-                        .font(.system(.body, design: .monospaced)).monospacedDigit().bold()
+                    PanelControls(
+                        onClose: { controller.close() },
+                        onCollapse: { controller.collapse() })
+                    MeetingTitleEditor(
+                        title: controller.meetingTitle,
+                        style: .compact,
+                        isEnabled: controller.canEditTitle,
+                        allowsWindowDrag: true,
+                        onCommit: controller.commitTitle)
+                        .frame(maxWidth: geometry.size.width * 0.46, alignment: .leading)
+                    // The explicit gutter remains draggable even with a long
+                    // title; the title itself drags only outside edit mode.
+                    Spacer(minLength: 20)
+                        .contentShape(Rectangle())
+                        .gesture(WindowDragGesture())
+                    RecordingClockTarget(controller: controller)
                 }
-                .contentShape(Rectangle())
-                .gesture(WindowDragGesture())
             }
+            .frame(height: 22)
 
             TextEditor(text: $controller.notes)
                 .focused($notesFocused)
@@ -177,20 +208,14 @@ struct RecordingStripView: View {
             Divider()
             // Ending the meeting is this panel's one primary action, so it sits
             // where the wrap-up panel's Summarise does — bottom right, prominent
-            // — rather than as a small control in the header beside the clock.
-            // Add timestamp shares the bar but stays bordered-grey: two prominent
-            // buttons would compete, and only one of them ends the recording.
+            // — while the one-meeting participant fact sits opposite it.
             HStack {
-                Button {
-                    controller.insertStamp()
-                } label: {
-                    Label("Add timestamp", systemImage: "clock")
-                        .labelStyle(.titleAndIcon)
-                }
-                .buttonStyle(.bordered)
-                .keyboardShortcut("t", modifiers: .command)
-                .help("Insert the current time (⌘T) — for notes tied to a moment")
-
+                ParticipantsMenu(controller: controller)
+                Button("") { controller.insertStamp() }
+                    .keyboardShortcut("t", modifiers: .command)
+                    .frame(width: 0, height: 0)
+                    .opacity(0)
+                    .accessibilityHidden(true)
                 Spacer()
                 Button("Stop recording") { controller.requestStop() }
                     .buttonStyle(.borderedProminent)
@@ -214,11 +239,25 @@ struct WrapUpView: View {
                 PanelControls(
                     onClose: { controller.close() },
                     onCollapse: { controller.collapse() })
-                Text(controller.title).font(.headline).lineLimit(1)
+                MeetingTitleEditor(
+                    title: controller.meetingTitle,
+                    style: .compact,
+                    isEnabled: controller.canEditTitle,
+                    allowsWindowDrag: true,
+                    onCommit: controller.commitTitle)
                 Spacer()
+                    .contentShape(Rectangle())
+                    .gesture(WindowDragGesture())
+                if controller.finalizationFailed {
+                    Button {
+                        controller.revealSessionInFinder()
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Reveal the recording folder in Finder")
+                }
             }
-            .contentShape(Rectangle())
-            .gesture(WindowDragGesture())
 
             MeetingDetailView(model: controller)
         }
@@ -254,11 +293,23 @@ struct SpeakerListView: View {
     /// — reading as if the rename hadn't taken. Editing is now a state, and the
     /// field gets the whole row's width while it lasts.
     @State private var editing: String?
+    private static let maxRowsHeight: CGFloat = 160
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Speakers").font(.caption).foregroundStyle(.secondary)
 
+            if rows.count > 3 {
+                ScrollView { rowsView }
+                    .frame(maxHeight: Self.maxRowsHeight)
+            } else {
+                rowsView
+            }
+        }
+    }
+
+    private var rowsView: some View {
+        LazyVStack(alignment: .leading, spacing: 8) {
             ForEach(rows) { row in
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
@@ -331,6 +382,7 @@ struct SpeakerListView: View {
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// A row is named once its label is no longer one diarization produced.

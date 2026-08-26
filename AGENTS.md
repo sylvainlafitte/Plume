@@ -40,7 +40,8 @@ TranscriptionCoordinator (actor, serial; .plume/state.json IS the queue)
  │   └─ OfflineDiarizer.diarize → SpeakerAttribution (per-word overlap, re-segmented on change)
  ├─ shift each track by its offset onto one clock
  ├─ EchoFilter.dropEchoes → Transcript.sorted (deterministic 4-level tie-break)
- ├─ MeetingDocument.render → meeting.md (notes / summary / transcript regions)
+ ├─ MeetingDocument.render → meeting.md (human title from meta, if any)
+ ├─ MeetingTitleStore reconcile latest title (MainActor, no folder move)
  ├─ delete audio                      ← irreversible, by design
  └─ state.json: transcribed
 
@@ -50,8 +51,13 @@ SummaryEngine (actor)
  │      falling back to map-reduce on contextExceeded
  ├─ buffer fully, then MeetingDocument.updateRegion(.summary)
  ├─ MeetingIdentityDeriver → title applied; speaker names → proposals.json (await a click)
- ├─ MeetingAdmin.renameFolder → returns the new session URL
  └─ state.json: summarized
+
+caller finalization (SummaryEngine never moves a folder)
+ ├─ MeetingTitleStore reapplies durable human title
+ ├─ AppController flushes panel/history notes in one MainActor operation
+ ├─ MeetingAdmin.renameFolder
+ └─ panel + history adopt the exact returned URL
 ```
 
 **Launch does more than start the menu bar**, and the order matters:
@@ -76,11 +82,11 @@ wrap-up); `HistoryWindowController` → Meetings; `SettingsWindowController` →
 `SetupWindowController` → Setup & Checks. Everything readiness-related renders `DoctorReport`,
 which has exactly one full renderer — that window (§2). `MeetingPanelController` and
 `HistoryModel` are **two surfaces over one object** — both conform to `MeetingDetailModel` and
-share the detail view *and* the summarize path (§4).
+share the detail view, title model and summarize/finalize path (§4).
 
 **The folder is the database.** No index. `.plume/state.json` is simultaneously the durable stage
 machine and the work queue, so `resumePending()` at launch just rescans; `MeetingLibrary` lists
-history by reading the first 4 KB of each `meeting.md`.
+history by reading the first 4 KB of each `meeting.md`, plus `meta.json` before a transcript exists.
 
 **Three isolation domains, chosen per layer**: `@MainActor` for `AppController`, `AppState`,
 `RecordingSession` and all UI; actors for `TranscriptionCoordinator`, `ParakeetEngine`,
@@ -105,7 +111,7 @@ Audio is deleted after transcription, so most damage here cannot be undone.
    region only on success.
 3. **Derived names are proposals, not facts.** Inferred speaker names wait for one human click
    in `.plume/proposals.json`. A wrong name puts words in a real person's mouth — worse than an
-   honest `S1`. The same rule covers **titles**: a renamed meeting carries
+   honest `S1`. The same rule covers **titles**: a human-titled meeting carries
    `title_source: user`, and auto-titling must skip it — otherwise the next Regenerate silently
    undoes the rename.
 4. **The user's Notes are theirs.** Nothing reformats them: no imposed bullets, no automatic
@@ -130,13 +136,13 @@ an earlier design. **Don't "fix" them without asking.**
 | Call detection never starts a recording | It notifies, and the notification's button starts one — the click is the consent. Off by default (`call_detection`), camera-triggered, and blind to audio-only calls on purpose: a false positive that recorded a meeting is the only unrecoverable failure this feature could have. |
 | Setup and diagnostics are one window | Merged 2026-08-16. They asked the same six `DoctorReport` checks, and the split had already produced two readings of one probe. `DoctorReport` is the engine and the window is its renderer. Probes stay behind a button (~2 s, plays a tone), and the window auto-opens only when the models are missing. The one thing that differs between its two entries is a closing CTA shown **only** on the launch-opened instance — from Settings it is a diagnostics window, where "you can close this now" says nothing. It is a parameter of the showing, not of the window, and it is guidance rather than a step: still a window, not a wizard. |
 | No transcript view in the app | Deliberate. The transcript is summarizer input and text in `meeting.md`. Speaker rows show sample lines so you can identify a voice without one. |
-| Notes have no automatic timestamps | Reversed in Phase 5: stamps went stale whenever a line was edited, and most notes aren't anchored to a moment. ⌘T inserts one on purpose. |
+| Notes have no automatic timestamps | Reversed in Phase 5: stamps went stale whenever a line was edited, and most notes aren't anchored to a moment. The recording clock or ⌘T inserts one on purpose. |
 | Summarizing is manual | The wrap-up gate is the point — you add final thoughts *then* summarize. A meeting resting at `transcribed` forever is normal. |
 | Only four templates, no template editor | Templates are markdown files in a folder; editing one means opening it. A JSON store and an editor UI were both declined. |
 | No in-app markdown editor | Declined. The files are markdown in a folder and every Mac has a good editor. |
 | The panel opens on Notes but Meetings opens on Summary | Deliberate, not an inconsistency. The panel is where you *write* a record; the window is where you *read* one. Fixed per surface, never per meeting — a default that varied with the selection would make the tab jump as you scroll the list. |
 | Summarize sits below the tabs, not inside Notes | So the default tab isn't load-bearing: the action stays reachable from either tab. It also leaves the bottom edge free for a future per-meeting Ask tab. |
-| A recording starts as the pill, and both expanded modes share one resizable frame | Reversed together. Two fixed sizes (340×300 recording, 430×580 wrap-up) assumed a live call wanted a smaller footprint — moot once the panel is only on screen when you deliberately open it. Collapse and expand must **pivot on the same corner**, or a round-trip drifts the pill by the difference in size. Top-right is only the *preferred* corner: `PanelAnchor` flips an axis when expanding from it would run off the screen, and the chosen corner is stored until the next expand — re-deriving it at collapse time is what makes the pill wander (covered by `PanelAnchorTests`). |
+| A recording starts expanded, and both expanded modes share one resizable frame | The title and notes are ready at the start of the call; collapse remains an explicit choice when the panel is in the way. Two fixed sizes (340×300 recording, 430×580 wrap-up) assumed a live call wanted a smaller footprint, but the same editing surface is useful on both sides of Stop. Collapse and expand must **pivot on the same corner**, or a round-trip drifts the pill by the difference in size. Top-right is only the *preferred* corner: `PanelAnchor` flips an axis when expanding from it would run off the screen, and the chosen corner is stored until the next expand — re-deriving it at collapse time is what makes the pill wander (covered by `PanelAnchorTests`). |
 | Two echo settings, not one | Different points in the pipeline and not interchangeable: `transcript_echo_filter` removes duplicates from the finished transcript (safe, default on), `mic_voice_processing` stops the echo reaching the recording but makes macOS duck all other audio for the whole meeting. Presented together, weaker one first. |
 | No UI for the vocabulary file, and it cannot fix the transcript | Both deliberate. `Vocabulary.md` is a markdown file beside `Templates/` — same premise, edited in your own editor. And it is read at *summary* time: Parakeet exposes no biasing hook (FluidAudio's `vocabulary` is the model's own token table), so a misheard term is already in the transcript, whose audio is gone. The glossary makes the **summary** spell it right; rewriting the transcript from it was rejected as invariant-1 territory. |
 | No Dock icon, and windows aren't in ⌘-Tab | Accessory apps are absent from ⌘-Tab **by rule**, not by window configuration — the only lever is `NSApp.setActivationPolicy(.regular)`, which brings a Dock icon and a real menu bar. Declined 2026-08-15. Windows are reached from the menu bar. |
@@ -144,7 +150,8 @@ an earlier design. **Don't "fix" them without asking.**
 | Nothing in the app helps you disclose the recording | The remedy is the **visible indicator** and nothing more. A Disclosure button that copied a suggested line was built and removed the same day: consent law is jurisdictional and situational, so a canned sentence in a menubar app is either redundant for someone who knows their obligations or falsely reassuring for someone who doesn't — and the second failure is the one that matters. Working out how to get consent is the user's, not Plume's. |
 | The update check never updates anything, and says nothing when it fails | It sets one field; the menu bar shows a line **only** while an update exists, and clicking it opens the release page — no appcast, no EdDSA key, no self-replacing bundle. Unreachable, rate-limited and up-to-date collapse to one answer (nil) on purpose, and **anything unparseable must mean silence** — a suffixed tag (`0.2.0-rc.1`) is refused rather than ranked, because the failure mode of guessing is a permanent un-dismissable "update available". It is the **only** non-localhost request Plume makes besides the first-run model download, so `update_check` gates the *request*: off means none is constructed, and there is deliberately no "check anyway" button to weaken that. Touching any of this puts the README's what-leaves-the-machine claim in scope. |
 | `expected_participants` defaults to 2 | 1:1 is the modal meeting; the cap makes over-splitting one voice structurally impossible. Confirmed on a real 1:1 2026-08-17 — one remote speaker, no over-split. Fix a mis-split with this, **never** by lowering the diarizer threshold. |
-| The recording panel's participant menu writes nothing to config | Deliberate, and it is what makes the count revert on its own. The override goes into that session's `meta.json` and nowhere else, so the *next* meeting reads `Config` because its folder has no override — there is no reset logic, no expiry and no sticky state, because there is nowhere for the value to persist. Absent key = pre-feature session = default-was-fine, correctly one case. The window it is editable in is real, not cosmetic: `stopSession` enqueues transcription immediately, so the cap is read at Stop — which is also why the control is on the recording panel and **not** in wrap-up, where it would silently do nothing. |
+| A human title does not immediately rename its folder | Title data is durable in `meta.json`/`meeting.md` and the UI reads that, not the path. Transcription owns one stable URL. Only successful Summary/Regenerate reconciles the slug; a post-summary edit may leave it cosmetic until the next Regenerate. This deliberately avoids general work tokens, path aliases and deferred-move machinery. |
+| The recording panel's participant menu writes nothing to config | Deliberate, and it is what makes the count revert on its own. The override goes into that session's `meta.json` and nowhere else, so the *next* meeting reads `Config` because its folder has no override — there is no reset logic, no expiry and no sticky state, because there is nowhere for the value to persist. Absent key = pre-feature session = default-was-fine, correctly one case. The window it is editable in is real, not cosmetic: `stopSession` enqueues transcription immediately, so the cap is read at Stop — which is also why the control is in the recording footer and **not** in wrap-up, where it would silently do nothing. |
 
 Genuinely **not built yet** (different thing): Ask — scoped as its own **global** surface with
 the per-meeting tab as the N=1 case, not a row and not only a tab. Its four open calls are already
@@ -153,7 +160,7 @@ taken in [docs/DECISIONS.md](docs/DECISIONS.md).
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 187 tests
+swift build && swift test                      # library + 199 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
 ./build-app.sh release notarize                # release: notarize, staple, dist/Plume-<v>.zip
 ./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
@@ -254,10 +261,11 @@ Four more rules the panel depends on, none of them enforced by anything:
   carry an explicit `WindowDragGesture()` instead.
 - The pill is **not a `Button`** — a Button treats a drag as a click, so it expanded whenever
   you tried to move it. Plain view + drag gesture + tap gesture.
-- The hosting view overrides `acceptsFirstMouse`, and the recording panel calls `makeKey()`
-  *without* `NSApp.activate`. A non-activating panel isn't key until clicked, so otherwise the
-  first click only raises it and the second reaches the field — and `@FocusState` cannot focus
-  anything in a window that isn't key.
+- The hosting view overrides `acceptsFirstMouse`, and an explicitly expanded recording panel calls
+  `makeKey()` *without* `NSApp.activate`. The initial expanded presentation deliberately does not
+  take key, so starting with the hotkey cannot redirect typing from the active app. On the first
+  click AppKit makes the panel key, and `acceptsFirstMouse` ensures that same click reaches the
+  field instead of merely raising the window.
 - `hosting.sizingOptions = []`, or SwiftUI's intrinsic size snaps the window back after every
   resize. **Window metrics generally lose to the hosting view:** `minSize`/`contentMinSize` are
   set and still ignored once it is installed, so the floor is enforced in `windowWillResize` —
@@ -298,8 +306,8 @@ rejects them. The symptom points somewhere else entirely: text selects fine, it 
 copies, in every window. `AppMenu.install()` creates an invisible menu whose only job is that
 routing; items use standard selectors with `target: nil` so they walk to the focused text view.
 
-**The wrap-up panel and the history window share `MeetingDetailView` *and* the summarize/reload
-path.** They are the same object at different ages — notes, summary, speakers, regenerate — so
+**The wrap-up panel and the history window share `MeetingDetailView` *and* the title/summarize/reload
+path.** They are the same object at different ages — title, notes, summary, speakers, regenerate — so
 changes belong in the shared code, not in one surface. They drifted within a single phase before
 the view existed (only one rendered markdown, only one had notes), and drifted again in the model
 until 2026-08-16 (on a failed regenerate, only one reloaded from disk — the other left streamed
@@ -309,11 +317,18 @@ text on screen that `meeting.md` never contained). The shared parts are now `Mee
 `initialTab`, and `summarizingFinished(session:)` — the panel retires the meeting to history,
 history rebuilds its list.
 
-**`SummaryEngine.summarize` returns the session URL, and callers must use it.** Deriving a title
-renames the folder. Both surfaces used to find the new one by matching the `yyyy-MM-dd-HHmm`
-prefix, which two meetings started in the same minute share — `RecordingSession` disambiguates
-with a `-2` suffix and `renameFolder` drops it — so a surface could silently follow the *other*
-meeting. Back-to-back calls are a designed-for case, not an edge one.
+**`SummaryEngine.summarize` never moves the folder or hops to `MainActor`.** The dev CLI runs it in
+a detached task while the main thread waits on a semaphore, so a main-actor hop there deadlocks.
+After it returns, `MeetingSummaryFinalizer` reapplies the durable human title and moves once. In the
+app, `AppController` wraps that in one synchronous MainActor handoff that flushes both surfaces and
+updates both URLs before an autosave can recreate the old folder; the CLI calls the same synchronous
+finalizer directly. Never recover the moved folder by matching the `yyyy-MM-dd-HHmm` prefix — two
+meetings can share it.
+
+**AppController's summary-owner set is deliberately narrow.** It prevents two UI surfaces from
+summarizing the same document, and rejects title edits or Trash while that summary owns the path.
+It is a `MainActor` `Set<URL>`, not a lifecycle actor or persistent index; transcription safety
+still comes from stable URLs plus live `state.json`.
 
 **`SummaryEngine` holds no `OllamaClient`.** It is built at launch, so a stored client pins the
 model configured then, while Settings and the readiness caption both report the current
@@ -363,8 +378,8 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-17, after the trim (cask, plan/progress docs, CLI
-checks, `on_stop`, `transcription.enabled`, update-check "Check now").*
+*Last reviewed against the code: 2026-08-26, after the recording panel and shared meeting-detail
+controls were refined.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass does
 not happen, and a silently wrong constraint is worse than a missing one — the next agent will

@@ -46,21 +46,11 @@ actor SummaryEngine {
     ///
     /// - Parameter onProgress: called with the accumulating text so a UI can
     ///   show it arriving. Never used to write to disk.
-    /// - Returns: the session URL, which **changes** when deriving a title
-    ///   renames the folder. Callers used to search the parent for a folder
-    ///   whose name starts with the `yyyy-MM-dd-HHmm` stamp, which is ambiguous
-    ///   by construction: `RecordingSession` disambiguates a same-minute
-    ///   collision with a `-2` suffix and `renameFolder` drops it, so two
-    ///   meetings recorded in the same minute end up differing only by slug and
-    ///   the prefix match can return either. Back-to-back calls are the case
-    ///   the panel exists for. Handing the answer back removes the guess rather
-    ///   than making two copies of it agree.
-    @discardableResult
     func summarize(
         session: URL,
         template: SummaryTemplate,
         onProgress: (@Sendable (Progress) -> Void)? = nil
-    ) async throws -> URL {
+    ) async throws {
         // Fixed for the duration of this summarize; current on the next one.
         let client = currentClient()
         let meetingURL = session.appendingPathComponent("meeting.md")
@@ -87,46 +77,39 @@ actor SummaryEngine {
 
         // Title and speaker names, derived from what was actually said. Failure
         // here must not undo a good summary, so it is best-effort.
-        var finalSession = session
         do {
             let identity = try await MeetingIdentityDeriver.derive(
                 transcript: transcript, notes: notes, client: client)
             try identity.save(to: session)
-            finalSession = try apply(identity, to: session)
+            try apply(identity, to: session)
         } catch {
             FileHandle.standardError.write(Data(
                 "could not derive title/speakers: \(error)\n".utf8))
         }
 
-        try SessionState.advance(finalSession, to: .summarized)
+        try SessionState.advance(session, to: .summarized)
 
         // Ours to unload, and only ours — Ollama is shared.
         try? await client.unload()
 
-        return finalSession
     }
 
     /// Apply the title (safe — it labels the meeting) and leave speaker names as
     /// proposals (invariant 3 — they attribute speech and need a human click).
-    /// Returns the session URL, which changes if the folder was renamed.
-    private func apply(_ identity: MeetingIdentity, to session: URL) throws -> URL {
-        guard let title = identity.title, !title.isEmpty else { return session }
+    private func apply(_ identity: MeetingIdentity, to session: URL) throws {
+        guard let title = identity.title, !title.isEmpty else { return }
 
         // A title someone typed outlasts every regenerate. Derived names are
         // proposals (invariant 3) and this one has already been answered —
         // overwriting it would make Rename appear to work and then silently
         // undo itself on the next summary.
-        guard !MeetingAdmin.isUserTitled(session: session) else { return session }
+        guard !MeetingAdmin.isUserTitled(session: session) else { return }
 
         try MeetingDocument.updateFrontmatter(
             at: session.appendingPathComponent("meeting.md")
         ) { pairs in
             MeetingDocument.setValue(title, for: "title", in: &pairs)
         }
-
-        // Rename the folder to carry the title. Safe here: recording finished
-        // long ago, the audio is deleted, and nothing holds the directory open.
-        return MeetingAdmin.renameFolder(session, toSlugOf: title)
     }
 
     // MARK: - Generation

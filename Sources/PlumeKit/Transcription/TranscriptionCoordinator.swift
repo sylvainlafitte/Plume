@@ -88,6 +88,10 @@ actor TranscriptionCoordinator {
             let dir = queue.removeFirst()
             publish(.transcribing(session: dir.lastPathComponent, queued: queue.count))
             do {
+                // A retry stops being deletable the moment it actually starts.
+                // The live state check in Meetings then treats it like any other
+                // active `.recorded` session.
+                try SessionState.advance(dir, to: .recorded)
                 try await transcribe(dir)
                 try? SessionState.advance(dir, to: .transcribed)
             } catch {
@@ -200,11 +204,14 @@ actor TranscriptionCoordinator {
         let speakers = orderedSpeakers(in: merged)
         var frontmatter: [(String, String)] = [
             (MeetingDocument.versionKey, "\(MeetingDocument.formatVersion)"),
-            ("title", dir.lastPathComponent),
             ("started", Self.localTimestamp(meta.startedAt ?? Date())),
             ("duration_s", "\(meta.durationSeconds ?? 0)"),
             ("engine", "\(engine.name) (\(engine.model))"),
         ]
+        if let userTitle = try MeetingTitleStore.userTitle(in: dir) {
+            frontmatter.insert(("title", userTitle), at: 1)
+            frontmatter.insert((MeetingAdmin.titleSourceKey, "user"), at: 2)
+        }
         // Flat keys, one per *remote* speaker — this map is what Phase 4/5 fill
         // in with real names (speaker_S1: Marie). "me" and "them" are already
         // meaningful labels and need no mapping, so listing them is noise.
@@ -220,6 +227,9 @@ actor TranscriptionCoordinator {
         )
         let meetingURL = dir.appendingPathComponent("meeting.md")
         try MeetingDocument.write(document, to: meetingURL)
+        _ = try await MainActor.run {
+            try MeetingTitleStore.reconcileUserTitle(in: dir)
+        }
         log(dir, "wrote meeting.md — \(merged.count) segments, \(speakers.count) speaker(s)")
 
         // Only now is the audio expendable. Deleting earlier would risk losing

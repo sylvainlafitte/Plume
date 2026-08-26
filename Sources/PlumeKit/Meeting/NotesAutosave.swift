@@ -30,6 +30,7 @@ final class NotesAutosave {
     }
 
     func flush() {
+        guard timer != nil else { return }
         timer?.invalidate()
         timer = nil
         save()

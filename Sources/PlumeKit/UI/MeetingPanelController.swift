@@ -36,6 +36,8 @@ final class MeetingPanelController: MeetingDetailModel {
     var detailError: String?
     var progressNote = "Summarising…"
     var speakerRows: [SpeakerRow] = []
+    var meetingTitle: String?
+    var finalizationFailed = false
 
     /// How many people are in *this* meeting, including you — the diarizer's cap
     /// (`Config.maxFarEndSpeakers`). Starts at the configured default on every
@@ -47,15 +49,27 @@ final class MeetingPanelController: MeetingDetailModel {
     /// Set by AppController; carries the count onto the live session, which
     /// writes it into meta.json at Stop.
     var onParticipantsChanged: ((Int) -> Void)?
+    var onTitleChanged: ((String) -> Void)?
+    var onCommitStoredTitle: ((URL, String) throws -> String?)?
+    var onBeginSummary: ((URL) -> Bool)?
+    var onEndSummary: ((URL) -> Void)?
+    var onIsSessionBusy: ((URL) -> Bool)?
+    var onFinalizeSummary: ((URL) throws -> URL)?
 
     var templates: [SummaryTemplate] { TemplateStore.all() }
     // MeetingDetailModel conformance.
     /// The panel is where you write a meeting record.
     var initialTab: MeetingTab { .notes }
     var canSummarize: Bool { transcriptReady }
-    var blockedReason: String? { transcriptReady ? nil : "transcribing…" }
+    var blockedReason: String? {
+        if finalizationFailed { return "recording couldn't be finalized" }
+        return transcriptReady ? nil : "transcribing…"
+    }
+    var canEditTitle: Bool {
+        guard let session, !finalizationFailed else { return false }
+        return !(onIsSessionBusy?(session) ?? false)
+    }
     func notesEdited() { scheduleSave() }
-    var title: String { session?.lastPathComponent ?? "Meeting" }
     /// True while a meeting is still in flight — recording, or stopped but not
     /// yet summarized. Once summarized it belongs to the Meetings window.
     var hasSession: Bool { session != nil && !isFinished }
@@ -87,6 +101,8 @@ final class MeetingPanelController: MeetingDetailModel {
         notes = ""
         summary = ""
         detailError = nil
+        meetingTitle = nil
+        finalizationFailed = false
         isRecording = true
         isFinished = false
         transcriptReady = false
@@ -96,12 +112,10 @@ final class MeetingPanelController: MeetingDetailModel {
         // Back to the configured default: last meeting's count was last
         // meeting's, and re-reading Config picks up an edit to the file too.
         participants = Config.expectedParticipants()
-        // Starts collapsed. Most of a call is spent not writing anything, and
-        // the notes field is one click away — whereas a strip that appears
-        // unbidden over a call has to be dismissed before it earns its place.
-        // Expanding is what `focus()` does, so the menu bar and the pill both
-        // reach the same state.
-        show(.pill)
+        // Start ready for the title and notes people usually add at the beginning
+        // of a call, but do not redirect typing from the app where the recording
+        // was started. The first click still reaches the field.
+        show(.recording, makeKey: false)
     }
 
     func tick() {
@@ -124,7 +138,37 @@ final class MeetingPanelController: MeetingDetailModel {
         startPolling()
     }
 
+    func recordingFinalizationFailed(_ error: Error) {
+        flushNotes()
+        isRecording = false
+        transcriptReady = false
+        finalizationFailed = true
+        detailError = "Couldn't finalize recording: \(error)"
+        detailTab = initialTab
+        expandedMode = .wrapUp
+        pollTimer?.invalidate()
+        pollTimer = nil
+        show(.wrapUp)
+    }
+
     func requestStop() { onStopRequested?() }
+
+    func commitTitle(_ raw: String) {
+        guard let title = MeetingTitleStore.normalize(raw), let session else { return }
+        if isRecording {
+            meetingTitle = title
+            onTitleChanged?(title)
+            return
+        }
+        do {
+            let committed = try onCommitStoredTitle?(session, title)
+                ?? MeetingTitleStore.setUserTitle(title, in: session)
+            meetingTitle = committed ?? meetingTitle
+            detailError = nil
+        } catch {
+            detailError = "\(error)"
+        }
+    }
 
     /// Applies a participant count to the live recording. Only ever called while
     /// recording — the value reaches the diarizer through meta.json, which is
@@ -139,11 +183,29 @@ final class MeetingPanelController: MeetingDetailModel {
     func collapse() { show(.pill) }
     func expand() { show(expandedMode) }
 
-    /// Dismiss entirely. Reachable again from the menu bar — a panel you cannot
-    /// close is worse than one you have to reopen.
+    /// Hide during recording, where the panel remains the live controls. Closing
+    /// a normal wrap-up retires it to Meetings; a failed finalization keeps its
+    /// recovery handle reachable from the menu bar.
     func close() {
         flushNotes()
         panel.hide()
+        guard !isRecording, !finalizationFailed else { return }
+        retireSession()
+    }
+
+    func releaseSessionForDeletion(_ candidate: URL) {
+        guard session == candidate else { return }
+        flushNotes()
+        panel.hide()
+        retireSession()
+    }
+
+    private func retireSession() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+        session = nil
+        isFinished = true
+        onSessionFinished?()
     }
 
     func focus() {
@@ -151,8 +213,8 @@ final class MeetingPanelController: MeetingDetailModel {
         panel.focus()
     }
 
-    private func show(_ mode: MeetingPanel.Mode) {
-        panel.show(mode, content: content(for: mode))
+    private func show(_ mode: MeetingPanel.Mode, makeKey: Bool = true) {
+        panel.show(mode, content: content(for: mode), makeKey: makeKey)
     }
 
     @ViewBuilder
@@ -180,6 +242,23 @@ final class MeetingPanelController: MeetingDetailModel {
     /// meeting starting while the first is in wrap-up must not write the first
     /// meeting's pending notes into the second's folder.
     func flushNotes() { autosave.flush() }
+
+    func flushNotes(ifReferencing candidate: URL) {
+        guard session == candidate else { return }
+        flushNotes()
+    }
+
+    func adoptSession(from old: URL, to new: URL) {
+        guard session == old else { return }
+        session = new
+        meetingTitle = MeetingTitleStore.title(in: new)
+        reloadContent()
+    }
+
+    func revealSessionInFinder() {
+        guard let session else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([session])
+    }
 
     private func writeNotes() {
         guard let session else { return }
@@ -224,6 +303,7 @@ final class MeetingPanelController: MeetingDetailModel {
         pollTimer?.invalidate()
         pollTimer = nil
         transcriptReady = true
+        meetingTitle = MeetingTitleStore.title(in: session)
 
         // Notes typed during wrap-up are newer than what transcription wrote.
         syncNotesRegion()
@@ -234,6 +314,18 @@ final class MeetingPanelController: MeetingDetailModel {
 
     func summarize() { runSummarize(engine: engine) }
 
+    func beginSummary(session: URL) -> Bool {
+        onBeginSummary?(session) ?? true
+    }
+
+    func endSummary(session: URL) {
+        onEndSummary?(session)
+    }
+
+    func finalizeSummary(session: URL) throws -> URL {
+        try onFinalizeSummary?(session) ?? MeetingSummaryFinalizer.finalize(session: session)
+    }
+
     /// - Parameter session: the URL the engine returned, which already accounts
     ///   for the folder being renamed once a title exists. This used to be found
     ///   by scanning the parent for the `yyyy-MM-dd-HHmm` prefix — which two
@@ -241,6 +333,7 @@ final class MeetingPanelController: MeetingDetailModel {
     ///   *other* meeting's folder.
     func summarizingFinished(session: URL) {
         self.session = session
+        meetingTitle = MeetingTitleStore.title(in: session)
         isFinished = true
         onSessionFinished?()
         reloadContent()

@@ -1,12 +1,11 @@
 import Foundation
 
-/// Renaming and deleting a meeting — the two operations that change what a
-/// session *is* rather than what it says.
+/// Moving and deleting a meeting — the two operations that change where the
+/// complete session folder lives.
 ///
-/// Both are riskier than they look. Renaming collides with auto-titling, which
-/// re-derives a title on every summarize; deleting removes the only surviving
-/// copy of a meeting, because the audio was deleted the moment the transcript
-/// was written (invariant 6).
+/// Both are riskier than they look. A move invalidates every model holding the
+/// old URL; deleting removes the only surviving copy of a meeting, because the
+/// audio was deleted the moment the transcript was written (invariant 6).
 enum MeetingAdmin {
 
     /// Frontmatter key marking a title as chosen by a person.
@@ -15,7 +14,7 @@ enum MeetingAdmin {
     /// is a fact, and the pipeline must not overwrite a fact. Without this the
     /// next Regenerate would silently restore the model's title — the edit
     /// would appear to work and then quietly undo itself, which is worse than
-    /// not offering rename at all.
+    /// not offering title editing at all.
     static let titleSourceKey = "title_source"
 
     static func isUserTitled(_ document: String) -> Bool {
@@ -28,26 +27,6 @@ enum MeetingAdmin {
             contentsOf: session.appendingPathComponent("meeting.md"), encoding: .utf8)
         else { return false }
         return isUserTitled(document)
-    }
-
-    /// Give a meeting a human-chosen title, and move the folder to match.
-    ///
-    /// Returns the session URL, which changes when the folder is renamed.
-    /// The `yyyy-MM-dd-HHmm` prefix is preserved: the list sorts on it, and
-    /// several places locate a renamed session by matching that prefix.
-    @discardableResult
-    static func rename(session: URL, to title: String) throws -> URL {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw AdminError.emptyTitle }
-
-        try MeetingDocument.updateFrontmatter(
-            at: session.appendingPathComponent("meeting.md")
-        ) { pairs in
-            MeetingDocument.setValue(trimmed, for: "title", in: &pairs)
-            MeetingDocument.setValue("user", for: titleSourceKey, in: &pairs)
-        }
-
-        return renameFolder(session, toSlugOf: trimmed)
     }
 
     /// Move the folder to `<stamp>-<slug>`, disambiguating a collision rather
@@ -85,17 +64,12 @@ enum MeetingAdmin {
     /// **Never `removeItem`.** The audio is already gone by the time a meeting
     /// is listed, so `meeting.md` is the only copy of something that cannot be
     /// reproduced from anything else — a mis-click has to stay recoverable.
-    static func trash(session: URL) throws {
-        try FileManager.default.trashItem(at: session, resultingItemURL: nil)
-    }
-
-    enum AdminError: Error, CustomStringConvertible, Equatable {
-        case emptyTitle
-
-        var description: String {
-            switch self {
-            case .emptyTitle: return "a meeting needs a title"
-            }
+    static func trash(
+        session: URL,
+        using operation: (URL) throws -> Void = {
+            try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
         }
+    ) throws {
+        try operation(session)
     }
 }

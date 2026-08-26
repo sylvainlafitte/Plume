@@ -20,6 +20,49 @@ final class HistoryWindowController {
         model = HistoryModel()
     }
 
+    var onFinalizeSummary: ((URL) throws -> URL)? {
+        get { model.onFinalizeSummary }
+        set { model.onFinalizeSummary = newValue }
+    }
+
+    var onCommitTitle: ((URL, String) throws -> String?)? {
+        get { model.onCommitTitle }
+        set { model.onCommitTitle = newValue }
+    }
+
+    var onBeginSummary: ((URL) -> Bool)? {
+        get { model.onBeginSummary }
+        set { model.onBeginSummary = newValue }
+    }
+
+    var onEndSummary: ((URL) -> Void)? {
+        get { model.onEndSummary }
+        set { model.onEndSummary = newValue }
+    }
+
+    var onIsSessionBusy: ((URL) -> Bool)? {
+        get { model.onIsSessionBusy }
+        set { model.onIsSessionBusy = newValue }
+    }
+
+    var onDeleteBlocked: ((URL) -> String?)? {
+        get { model.onDeleteBlocked }
+        set { model.onDeleteBlocked = newValue }
+    }
+
+    var onPrepareDelete: ((URL) -> Void)? {
+        get { model.onPrepareDelete }
+        set { model.onPrepareDelete = newValue }
+    }
+
+    func flushNotes(ifReferencing session: URL) {
+        model.flushNotes(ifReferencing: session)
+    }
+
+    func adoptSession(from old: URL, to new: URL) {
+        model.adoptSession(from: old, to: new)
+    }
+
     func show() {
         if window == nil {
             let hosting = NSHostingController(rootView: HistoryView(model: model))
@@ -57,14 +100,29 @@ final class HistoryModel: MeetingDetailModel {
     var detailTab: MeetingTab = .summary
     var notes: String = ""
     var progressNote = "Summarising…"
+    var onFinalizeSummary: ((URL) throws -> URL)?
+    var onCommitTitle: ((URL, String) throws -> String?)?
+    var onBeginSummary: ((URL) -> Bool)?
+    var onEndSummary: ((URL) -> Void)?
+    var onIsSessionBusy: ((URL) -> Bool)?
+    var onDeleteBlocked: ((URL) -> String?)?
+    var onPrepareDelete: ((URL) -> Void)?
 
     var templates: [SummaryTemplate] { TemplateStore.all() }
     // MeetingDetailModel conformance. A past meeting always has a transcript,
     // so summarizing is only blocked while one is already running.
     /// History is where you read one back, so it opens on the result.
     var initialTab: MeetingTab { .summary }
-    var canSummarize: Bool { selected != nil }
-    var blockedReason: String? { nil }
+    var canSummarize: Bool { selected.map { $0.stage >= .transcribed } ?? false }
+    var blockedReason: String? {
+        guard let selected, selected.stage == .recorded else { return nil }
+        return "transcribing…"
+    }
+    var meetingTitle: String? { selected?.title }
+    var canEditTitle: Bool {
+        guard let selected else { return false }
+        return !(onIsSessionBusy?(selected.url) ?? false)
+    }
     func notesEdited() { scheduleSave() }
     var selected: MeetingEntry? { entries.first { $0.url == selection } }
     /// MeetingDetailModel's view of "the meeting on screen" is the selection.
@@ -101,6 +159,11 @@ final class HistoryModel: MeetingDetailModel {
 
     func scheduleSave() { autosave.schedule() }
     func flushNotes() { autosave.flush() }
+
+    func flushNotes(ifReferencing session: URL) {
+        guard selection == session else { return }
+        flushNotes()
+    }
 
     private func writeNotes() {
         guard let selected else { return }
@@ -139,29 +202,54 @@ final class HistoryModel: MeetingDetailModel {
         NSWorkspace.shared.open(root)
     }
 
-    /// Rename a meeting. Named for the meeting to keep it distinct from
-    /// `rename(_:to:)`, which renames a *speaker*.
-    func renameMeeting(_ url: URL, to title: String) {
+    func commitTitle(_ raw: String) {
+        guard let selection else { return }
         do {
-            let renamed = try MeetingAdmin.rename(session: url, to: title)
+            flushNotes()
+            _ = try onCommitTitle?(selection, raw)
+                ?? MeetingTitleStore.setUserTitle(raw, in: selection)
             detailError = nil
             entries = MeetingLibrary.entries(in: root)
-            // Follow the meeting to its new folder rather than losing the
-            // selection to a URL that no longer exists.
-            if selection == url { selection = renamed }
             loadSelected()
         } catch {
             self.detailError = "\(error)"
         }
     }
 
+    func finalizeSummary(session: URL) throws -> URL {
+        try onFinalizeSummary?(session) ?? MeetingSummaryFinalizer.finalize(session: session)
+    }
+
+    func beginSummary(session: URL) -> Bool {
+        onBeginSummary?(session) ?? true
+    }
+
+    func endSummary(session: URL) {
+        onEndSummary?(session)
+    }
+
+    func adoptSession(from old: URL, to new: URL) {
+        let wasSelected = selection == old
+        entries = MeetingLibrary.entries(in: root)
+        guard wasSelected else { return }
+        selection = new
+        loadSelected()
+    }
+
     /// Move a meeting to the Trash and select its neighbour.
     func deleteMeeting(_ url: URL) {
+        guard let entry = entries.first(where: { $0.url == url }) else { return }
+        if let reason = deleteDisabledReason(for: entry) {
+            detailError = reason
+            return
+        }
         // Where it sat, so the selection can land somewhere sensible instead of
         // jumping to the top of the list.
         let index = entries.firstIndex { $0.url == url }
         do {
+            if selection == url { flushNotes() }
             try MeetingAdmin.trash(session: url)
+            onPrepareDelete?(url)
             detailError = nil
         } catch {
             self.detailError = "\(error)"
@@ -178,16 +266,32 @@ final class HistoryModel: MeetingDetailModel {
     }
 
     func revealInFinder(_ url: URL) {
+        let meeting = url.appendingPathComponent("meeting.md")
         NSWorkspace.shared.activateFileViewerSelecting(
-            [url.appendingPathComponent("meeting.md")])
+            [FileManager.default.fileExists(atPath: meeting.path) ? meeting : url])
     }
 
     func summarize() { runSummarize(engine: engine) }
 
-    /// - Parameter session: the URL the engine returned. Summarizing renames the
-    ///   folder once a title exists, so the list — and the selection — are
-    ///   rebuilt around the meeting's new home rather than around a prefix match
-    ///   two same-minute meetings would both satisfy.
+    func deleteDisabledReason(for entry: MeetingEntry) -> String? {
+        if let reason = onDeleteBlocked?(entry.url) { return reason }
+        let live = SessionState.load(from: entry.url)
+        let stage = live?.stage ?? entry.stage
+        let blocker = live?.blocker ?? entry.blocker
+        let owned = live?.isOwnedByThisMachine ?? entry.isOwnedByThisMachine
+        if !owned, stage == .recorded {
+            return "This recording belongs to another Mac and may still be processing there."
+        }
+        if stage == .recorded, blocker == nil {
+            return "Transcription is still in progress."
+        }
+        if isGenerating, selection == entry.url {
+            return "Summary generation is still in progress."
+        }
+        return nil
+    }
+
+    /// The caller finalizer supplies the exact folder URL after a possible move.
     func summarizingFinished(session: URL) {
         entries = MeetingLibrary.entries(in: root)
         selection = session
@@ -205,12 +309,8 @@ final class HistoryModel: MeetingDetailModel {
 
 struct HistoryView: View {
     @Bindable var model: HistoryModel
-    /// Non-nil while the corresponding sheet is up. Held as entries rather than
-    /// as booleans so the prompts can name the meeting they act on — "Delete
-    /// this meeting?" is a worse question than naming it.
-    @State private var renaming: MeetingEntry?
+    /// Held as an entry rather than a boolean so the prompt can name the meeting.
     @State private var deleting: MeetingEntry?
-    @State private var draftTitle = ""
 
     var body: some View {
         NavigationSplitView {
@@ -226,24 +326,8 @@ struct HistoryView: View {
             }
         }
         .onAppear { model.reload() }
-        .alert(
-            "Rename meeting",
-            isPresented: Binding(
-                get: { renaming != nil },
-                set: { if !$0 { renaming = nil } })
-        ) {
-            TextField("Title", text: $draftTitle)
-            Button("Rename") {
-                if let entry = renaming { model.renameMeeting(entry.url, to: draftTitle) }
-                renaming = nil
-            }
-            .disabled(draftTitle.trimmingCharacters(in: .whitespaces).isEmpty)
-            Button("Cancel", role: .cancel) { renaming = nil }
-        } message: {
-            Text("The folder is renamed to match. Summarising again won't overwrite it.")
-        }
         .confirmationDialog(
-            deleting.map { "Move “\($0.title)” to the Trash?" } ?? "",
+            deleting.map { "Move “\($0.confirmationName)” to the Trash?" } ?? "",
             isPresented: Binding(
                 get: { deleting != nil },
                 set: { if !$0 { deleting = nil } }),
@@ -265,7 +349,7 @@ struct HistoryView: View {
     ///
     /// None of these is the reason the window exists — reading the summary and
     /// regenerating it are, and both are in the detail pane. Opening the file,
-    /// revealing it, renaming and deleting are all escape hatches, so they sit
+    /// revealing it and deleting are escape hatches, so they sit
     /// behind one menu instead of lining the header with buttons that compete
     /// with the content. The same builder backs the row context menu, so a
     /// right-click and the header menu can never offer different things.
@@ -274,12 +358,11 @@ struct HistoryView: View {
         Button("Open in editor") { model.openInEditor(entry.url) }
         Button("Reveal in Finder") { model.revealInFinder(entry.url) }
         Divider()
-        Button("Rename…") {
-            draftTitle = entry.title
-            renaming = entry
-        }
-        Divider()
         Button("Delete…", role: .destructive) { deleting = entry }
+            .disabled(model.deleteDisabledReason(for: entry) != nil)
+        if let reason = model.deleteDisabledReason(for: entry) {
+            Text(reason)
+        }
     }
 
     private var list: some View {
@@ -289,7 +372,9 @@ struct HistoryView: View {
         ) {
             ForEach(model.entries) { entry in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.title).lineLimit(1)
+                    Text(entry.displayTitle)
+                        .foregroundStyle(entry.title == nil ? .secondary : .primary)
+                        .lineLimit(1)
                     HStack(spacing: 6) {
                         Text(entry.subtitle)
                             .font(.caption).foregroundStyle(.secondary)
@@ -340,7 +425,11 @@ struct HistoryView: View {
             if let entry = model.selected {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.title).font(.title3).bold().lineLimit(2)
+                        MeetingTitleEditor(
+                            title: entry.title,
+                            style: .detail,
+                            isEnabled: model.canEditTitle,
+                            onCommit: model.commitTitle)
                         Text(entry.subtitle).font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()

@@ -26,9 +26,11 @@ Audio is deleted after transcription. The transcript and your notes remain in `m
 - Separate microphone and system-audio capture
 - On-device transcription and speaker separation
 - A small notes panel for notes during and after the meeting
+- Meeting titles you can add during recording, wrap-up or later
 - Summaries generated from your notes, transcript and chosen template
 - Editable Markdown templates and meeting files
-- Meetings window for browsing, renaming speakers, regenerating summaries and opening files
+- Meetings window for editing titles and notes, renaming speakers, regenerating summaries,
+  opening files and moving meetings to the Trash
 - Optional login item and camera-on reminder
 
 ## Requirements
@@ -66,16 +68,20 @@ cd Plume
 
 ## Use it
 
-Start a recording from the menu bar or press `⌥⌘R`. Click the pill to expand it and write notes.
+Start a recording from the menu bar or press `⌥⌘R`. The recording panel opens ready for a title
+and notes; collapse it to the pill when you want it out of the way. Click the recording clock—or
+press `⌘T`—to insert the current time into Notes.
 
 Stop the recording, add any final thoughts, choose a template, and press **Summarise**. Plume
 transcribes the meeting and writes the notes, summary and transcript to:
 
 ```text
-~/Meetings/<meeting>/meeting.md
+~/Meetings/<timestamp>[-<title>]/meeting.md
 ```
 
-Open the Meetings window later to edit notes, change a template, rename speakers or regenerate a
+Open the Meetings window later to change the title, edit notes, choose another template, rename
+speakers, regenerate a summary or move the whole meeting folder to the Trash. A title changes
+immediately in Plume and `meeting.md`; its folder name catches up the next time you generate a
 summary. The files are yours to move, edit and keep.
 
 ## Templates and spelling

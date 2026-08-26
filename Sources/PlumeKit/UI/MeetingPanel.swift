@@ -89,10 +89,9 @@ final class MeetingPanel {
     /// you drag a corner, not what you are held to.
     ///
     /// Recording and wrap-up used to be two fixed sizes (340×300 and 430×580)
-    /// on the assumption that a live call wanted the smaller footprint. Starting
-    /// collapsed made that moot: the panel is only on screen while you are
-    /// deliberately writing in it, and the same notes field is the point in both
-    /// modes. Two sizes then bought nothing and cost a resize on every stop.
+    /// on the assumption that a live call wanted the smaller footprint. The same
+    /// title and notes surface is useful on both sides of Stop, so two sizes bought
+    /// nothing and cost a resize on every stop.
     private static let defaultSize = NSSize(width: 400, height: 480)
     /// Below this the tabs, summarize bar and speaker list stop coexisting.
     private static let minSize = NSSize(width: 300, height: 260)
@@ -106,12 +105,12 @@ final class MeetingPanel {
     /// fixed top-right rule was really buying.
     private var anchor: PanelAnchor = .preferred
 
-    func show(_ mode: Mode, content: some View) {
+    func show(_ mode: Mode, content: some View, makeKey: Bool = true) {
         self.mode = mode
         if mode == .pill {
             showPill(content)
         } else {
-            showExpanded(mode, content)
+            showExpanded(mode, content, makeKey: makeKey)
         }
     }
 
@@ -149,7 +148,7 @@ final class MeetingPanel {
         [main as NSWindow?, wrap].compactMap { $0 }.first { $0.isVisible }
     }
 
-    private func showExpanded(_ mode: Mode, _ content: some View) {
+    private func showExpanded(_ mode: Mode, _ content: some View, makeKey: Bool) {
         let window: NSWindow = mode == .wrapUp ? ensureWrap() : ensureMain()
         // The titlebar is transparent and hidden but still reserves a safe area;
         // we draw all our own chrome, so there is nothing to leave room for.
@@ -179,12 +178,13 @@ final class MeetingPanel {
 
         switch mode {
         case .recording:
-            // Become key *without* activating the app. A non-activating panel can
-            // hold key while another app stays frontmost — that is what utility
-            // panels are for — and focus only follows the key window, so without
-            // this the notes field cannot take focus on appear.
             window.orderFrontRegardless()
-            window.makeKey()
+            if makeKey {
+                // Become key *without* activating the app. A non-activating panel
+                // can hold key while another app stays frontmost — that is what
+                // utility panels are for.
+                window.makeKey()
+            }
         case .wrapUp:
             // The call is over; a comfortable typing surface now matters more
             // than staying out of the way. An ordinary activation, so the app's
@@ -204,9 +204,8 @@ final class MeetingPanel {
 
         // Collapse onto the corner the last expand pivoted on, so the pill lands
         // exactly where it came from. Falls back to building the recording panel
-        // when neither expanded window has been shown, because a recording now
-        // starts collapsed: its autosaved frame is where the user last left the
-        // panel, which is a better guess than a screen corner.
+        // when neither expanded window has been shown; its autosaved frame is a
+        // better placement source than an arbitrary screen corner.
         let source = visibleExpanded ?? ensureMain()
         pill.setFrame(
             constrained(anchor.frame(of: Self.pillSize, pivotedOn: source.frame)),

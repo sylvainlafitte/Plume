@@ -111,8 +111,8 @@ struct MeetingLibraryTests {
         #expect(MeetingLibrary.entries(in: root).map(\.title) == ["Real"])
     }
 
-    @Test("a missing or unreadable meeting.md falls back to the folder name")
-    func fallsBackToFolderName() throws {
+    @Test("a recorded meeting with no title is explicitly untitled")
+    func recordedMeetingIsUntitled() throws {
         let root = tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let url = root.appendingPathComponent("2026-08-14-1400", isDirectory: true)
@@ -122,8 +122,45 @@ struct MeetingLibraryTests {
 
         // Recorded but not yet transcribed: state exists, meeting.md does not.
         let entry = try #require(MeetingLibrary.entries(in: root).first)
-        #expect(entry.title == "2026-08-14-1400")
+        #expect(entry.title == nil)
+        #expect(entry.displayTitle == "Add title")
         #expect(entry.stage == .recorded)
+    }
+
+    @Test("a recorded meeting reads its human title from metadata")
+    func recordedMeetingReadsMetadataTitle() throws {
+        let root = tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("2026-08-14-1400", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: SessionState.directory(in: url), withIntermediateDirectories: true)
+        try SessionState(stage: .recorded).save(to: url)
+        let metadata: [String: Any] = [
+            "started": "2026-08-14T14:00:00+02:00",
+            "duration_seconds": 90,
+            MeetingTitleStore.metadataKey: "Early title",
+        ]
+        try JSONSerialization.data(withJSONObject: metadata).write(
+            to: SessionState.directory(in: url).appendingPathComponent("meta.json"),
+            options: .atomic)
+
+        let entry = try #require(MeetingLibrary.entries(in: root).first)
+        #expect(entry.title == "Early title")
+        #expect(entry.started != nil)
+        #expect(entry.durationSeconds == 90)
+    }
+
+    @Test("machine ownership is carried to the deletion UI")
+    func carriesMachineOwnership() throws {
+        let root = tempRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("2026-08-14-1400", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: SessionState.directory(in: url), withIntermediateDirectories: true)
+        try SessionState(stage: .recorded, machine: "another-mac").save(to: url)
+
+        let entry = try #require(MeetingLibrary.entries(in: root).first)
+        #expect(!entry.isOwnedByThisMachine)
     }
 
     @Test("an empty root lists nothing rather than failing")

@@ -3,9 +3,9 @@ import Foundation
 /// One meeting recording.
 ///
 /// Layout: a timestamped folder whose only visible content is eventually
-/// `meeting.md`. Everything transient — the two audio tracks, meta.json, the
-/// log, pipeline state — lives in `.plume/` and is removed once the transcript
-/// is safely written. The user opens a folder and sees a document, not scaffolding.
+/// `meeting.md`. Audio and other internal state live in `.plume/`; audio is
+/// removed once the transcript is safely written, while metadata and pipeline
+/// state remain durable. The user opens a folder and sees a document, not scaffolding.
 ///
 /// Tracks are separate on purpose: ASR does better on clean single-source audio,
 /// and two tracks give me/them separation for free before any model runs.
@@ -24,6 +24,9 @@ final class RecordingSession {
     /// absent key means both "recorded before this existed" and "the default was
     /// right" — correctly the same case for the diarizer.
     var expectedParticipants: Int?
+    /// Human title typed while recording. It is written with the rest of
+    /// `meta.json` at Stop; editing it never moves the live folder.
+    var userTitle: String?
 
     private let mic = MicRecorder()
     private let system = SystemAudioRecorder()
@@ -93,7 +96,7 @@ final class RecordingSession {
     }
 
     /// Stop both tracks and write meta.json.
-    func stop() {
+    func stop() throws {
         watchdog?.invalidate()
         watchdog = nil
         mic.stop()
@@ -121,15 +124,18 @@ final class RecordingSession {
         if let expectedParticipants {
             meta["expected_participants"] = expectedParticipants
         }
-        if let data = try? JSONSerialization.data(
+        if let userTitle = userTitle.flatMap(MeetingTitleStore.normalize) {
+            meta[MeetingTitleStore.metadataKey] = userTitle
+        }
+        let data = try JSONSerialization.data(
             withJSONObject: meta,
             options: [.prettyPrinted, .sortedKeys]
-        ) {
-            try? data.write(to: workDir.appendingPathComponent("meta.json"))
-            // Recording is durably complete; the pipeline can resume from here
-            // even if we crash before transcription starts.
-            try? SessionState(stage: .recorded).save(to: dir)
-        }
+        )
+        try data.write(to: workDir.appendingPathComponent("meta.json"), options: .atomic)
+        // Recording is durably complete; the pipeline can resume from here even
+        // if we crash before transcription starts. Never publish `.recorded`
+        // before its metadata contract exists.
+        try SessionState(stage: .recorded).save(to: dir)
     }
 
     // MARK: -
