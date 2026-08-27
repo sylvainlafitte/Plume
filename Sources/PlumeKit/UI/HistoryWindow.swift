@@ -67,7 +67,21 @@ final class HistoryWindowController {
         if window == nil {
             let hosting = NSHostingController(rootView: HistoryView(model: model))
             let window = NSWindow(contentViewController: hosting)
-            window.title = "Plume Meetings"
+            // Empty, not named: the window is a list on the left and the
+            // meeting on the right, and a strip repeating the app's name above
+            // them says nothing. The bar itself stays — `.titled` is what
+            // carries the traffic lights and lets the window become key.
+            //
+            // Getting the lights *into* the sidebar the way Finder does was
+            // tried and abandoned (2026-08-27): SwiftUI's NavigationSplitView
+            // only draws a real sidebar inside a SwiftUI scene, and this is a
+            // hand-built NSWindow in an accessory app. Neither
+            // `.fullSizeContentView` with a transparent titlebar nor an empty
+            // unified NSToolbar reached through to it — macOS 26 keeps its own
+            // inset sidebar panel below the bar regardless. The remaining route
+            // is an AppKit NSSplitViewController shell, which is more machinery
+            // than this window is worth.
+            window.title = ""
             window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
             window.setContentSize(NSSize(width: 760, height: 520))
             window.isReleasedWhenClosed = false
