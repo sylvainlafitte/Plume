@@ -160,7 +160,7 @@ taken in [docs/DECISIONS.md](docs/DECISIONS.md).
 ## 3. Build & run
 
 ```bash
-swift build && swift test                      # library + 199 tests
+swift build && swift test                      # library + 200 tests
 ./build-app.sh release run                     # assemble, sign, install, launch
 ./build-app.sh release notarize                # release: notarize, staple, dist/Plume-<v>.zip
 ./.build/debug/plume diarize <file.caf>        # dev: print diarizer turns
@@ -378,8 +378,8 @@ clipped panel before one diagnostic printed the geometry and found it in seconds
 
 ## Keeping this file current
 
-*Last reviewed against the code: 2026-08-26, after the recording panel and shared meeting-detail
-controls were refined.*
+*Last reviewed against the code: 2026-08-27, after live recording notes persistence was
+regression-proofed.*
 
 **Update it in the same commit as the change, never "later."** A separate documentation pass does
 not happen, and a silently wrong constraint is worse than a missing one — the next agent will

@@ -26,7 +26,12 @@ final class MeetingPanelController: MeetingDetailModel {
 
     // Observed by the views.
     var detailTab: MeetingTab = .notes
-    var notes: String = ""
+    var notes: String = "" {
+        didSet {
+            guard isRecording, notes != oldValue else { return }
+            scheduleSave()
+        }
+    }
     var summary: String = ""
     var templateID: String = Config.defaultTemplate()
     var elapsed: String = "0:00"
@@ -233,7 +238,6 @@ final class MeetingPanelController: MeetingDetailModel {
         guard let startedAt else { return }
         notes = NotesStore.appendingStamp(
             to: notes, elapsed: Date().timeIntervalSince(startedAt))
-        scheduleSave()
     }
 
     func scheduleSave() { autosave.schedule() }
