@@ -111,16 +111,19 @@ private struct ParticipantsMenu: View {
                 }
             }
         } label: {
-            HStack(spacing: 3) {
-                Image(systemName: "person.2").font(.system(size: 10))
-                Text(Self.label(controller.participants))
-                    .font(.system(size: 11)).monospacedDigit()
+            // `.menuStyle(.button)`, like the Meetings row ellipsis: borderless
+            // chrome reads as a status readout rather than a control. No
+            // `controlSize` and no explicit point sizes — a bordered control
+            // sizes itself from its label, so the default metrics are what make
+            // this match the template picker instead of drifting from it.
+            HStack(spacing: 4) {
+                Image(systemName: "person.2")
+                Text(Self.label(controller.participants)).monospacedDigit()
             }
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .menuStyle(.button)
+        .menuIndicator(.visible)
         .fixedSize()
-        .foregroundStyle(.secondary)
         .help("How many people are in this meeting, including you — helps split "
             + "the far-end voices apart. This meeting only.")
     }
